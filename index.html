@@ -241,6 +241,11 @@ body{background:
 #bootScreen .boot-card p{color:var(--ink-2);font-size:13px;margin:8px 0}
 #bootScreen .boot-card .hint{font-size:12px}
 #bootScreen .boot-card code{display:inline-block;background:var(--panel);border:1px solid var(--line);padding:7px 12px;border-radius:8px;font-family:'IBM Plex Mono';font-size:13px;color:var(--accent-ink);margin:4px 0}
+.foot-meta{display:flex;flex-direction:column;gap:5px}
+.foot-meta .fr{display:flex;flex-direction:column;font-size:11px}
+.foot-meta .fr span{color:var(--neutral);text-transform:uppercase;letter-spacing:.04em;font-size:9.5px;font-weight:600}
+.foot-meta .fr b{color:var(--ink);font-size:11.5px;font-weight:600}
+.foot-meta .fr b.ell{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:190px}
 </style>
 </head>
 <body>
@@ -269,8 +274,6 @@ body{background:
       <a data-page="expenses"><span class="ic" data-i="receipt"></span> Operational Expenses</a>
       <a data-page="banks"><span class="ic" data-i="bank"></span> Bank Management</a>
       <a data-page="cashflow"><span class="ic" data-i="cash"></span> Cash Flow Control</a>
-      <div class="grp">Data</div>
-      <a data-page="data"><span class="ic" data-i="db"></span> Data &amp; Audit</a>
     </nav>
     <div class="side-foot" id="foot"></div>
   </aside>
@@ -308,7 +311,6 @@ body{background:
     <div class="page" id="page-expenses"></div>
     <div class="page" id="page-banks"></div>
     <div class="page" id="page-cashflow"></div>
-    <div class="page" id="page-data"></div>
   </div>
 </div>
 
@@ -970,34 +972,6 @@ window.cfForm=function(){openModal('Add Cash Movement',`
 window.delCf=function(id){confirmAction('Delete this cash movement?',()=>{let f=STORE.read('cashflows',[]);f=f.filter(x=>x.id!==id);STORE.write('cashflows',f);renderCashflow();toast('Deleted');});};
 
 /* ============================================================
-   PAGE: DATA & AUDIT
-   ============================================================ */
-function renderData(){
-  const p=$('#page-data');const a=agg(ROWS);
-  p.innerHTML=`
-   <div class="pagehead"><h2>Data &amp; Audit</h2><p>Standardised data model, cleaning log, and master lists for the loaded workbook.</p></div>
-   <div class="subgrid" style="margin-bottom:18px">
-     <div class="stat"><div class="l">Records</div><div class="v">${num(ROWS.length)}</div></div>
-     <div class="stat"><div class="l">Date Range</div><div class="v" style="font-size:13px">${DB.meta.date_min} → ${DB.meta.date_max}</div></div>
-     <div class="stat"><div class="l">Customers</div><div class="v">${CUST.length}</div></div>
-     <div class="stat"><div class="l">Modes</div><div class="v">${MODES.length}</div></div>
-     <div class="stat"><div class="l">Salespeople</div><div class="v">${SP.length}</div></div>
-     <div class="stat"><div class="l">Lifetime Revenue</div><div class="v" style="font-size:15px">${AED2(a.rev)}</div></div>
-   </div>
-   <div class="card" style="margin-bottom:16px"><div class="head"><h3>Cleaning Log — what was standardised</h3></div><div class="body">
-     <div class="audit-flag fix"><div class="dot"></div><div><div class="t">Merged 3 duplicate customers (case variants)</div><div class="d">“ET International DMCC / ET INTERNATIONAL DMCC”, “Meraki Global Energy LLC / …”, “Mr. MOIEN / MR. MOIEN” collapsed to one canonical entity each. Customer count 256 → 253.</div></div></div>
-     <div class="audit-flag fix"><div class="dot"></div><div><div class="t">Repaired 4 corrupt dates</div><div class="d">Four invoices stored dates as raw Excel serial numbers (e.g. 45880). Converted to real calendar dates. All 6,605 dates now parse.</div></div></div>
-     <div class="audit-flag fix"><div class="dot"></div><div><div class="t">Recomputed Profit & Gross % from source</div><div class="d">Profit = Invoice Amount − Cost; Gross % = Profit ÷ Invoice Amount (zero-safe). 7 rows had stale gross-% values in the source; all now internally consistent.</div></div></div>
-     <div class="audit-flag note"><div class="dot"></div><div><div class="t">100 loss-making invoices retained (not deleted)</div><div class="d">Negative-profit lines (min −AED 17,948) and 16 credit/negative-amount invoices are kept — they are real and material to margin analysis, but flagged for review.</div></div></div>
-     <div class="audit-flag note"><div class="dot"></div><div><div class="t">Salesperson attribution gap</div><div class="d">~90% of revenue is booked to a generic “MANAGEMENT” pool; only ARIEF, HASAN and ISHANA are named (ISHANA = 1 invoice). Rep-level performance analysis is limited until attribution improves.</div></div></div>
-   </div></div>
-   <div class="card" style="margin-bottom:16px"><div class="head"><h3>Standard Data Model</h3></div><div class="body pad0"><table class="map-tbl"><thead><tr><th>Source Column</th><th>Standard Field</th><th>Type</th><th>Role</th></tr></thead><tbody>
-     ${[['Invoice#','invoice_no','string','Distinct invoice key'],['Invoice Date','date','date (ISO)','Time dimension'],['Customer Name','customer','string','Customer dimension (cleaned)'],['Mode','mode','string','Sales/service mode'],['Sales Person','salesperson','string','Rep dimension'],['Invoice Amount','revenue','number','Net sales'],['Cost','cogs','number','Cost of goods sold'],['Profit','gross_profit','number','= revenue − cogs'],['Gross %','gross_margin','percent','= profit ÷ revenue'],['Quarter / Month / Years','period','derived','Roll-up keys']].map(r=>`<tr><td class="tag">${r[0]}</td><td><b>${r[1]}</b></td><td>${r[2]}</td><td>${r[3]}</td></tr>`).join('')}
-   </tbody></table></div></div>
-   <div style="display:flex;gap:8px"><button class="btn pri" onclick="exportCleaned()">⭳ Download Cleaned Dataset (Excel)</button><button class="btn" onclick="backupData()">⭳ Backup App Data (JSON)</button></div>`;
-}
-
-/* ============================================================
    EXPORTS
    ============================================================ */
 function exportCleaned(){if(typeof XLSX==="undefined"){toast("Excel export needs internet","warn");return;}
@@ -1013,6 +987,85 @@ function currentExport(){if(typeof XLSX==="undefined"){toast("Excel export needs
   XLSX.writeFile(wb,'Sales_Filtered_Export.xlsx');toast('Filtered export ready','ok');}
 
 /* ============================================================
+   EXCEL UPLOAD  (parse a workbook in-browser and rebuild the dataset)
+   ============================================================ */
+function parseWorkbook(arrayBuffer, filename){
+  const wb=XLSX.read(arrayBuffer,{type:'array',cellDates:true});
+  const sheet=wb.SheetNames.includes('Input Data')?'Input Data':wb.SheetNames[0];
+  const grid=XLSX.utils.sheet_to_json(wb.Sheets[sheet],{header:1,raw:true,defval:null});
+  if(!grid.length) throw new Error('Sheet "'+sheet+'" is empty');
+  const header=(grid[0]||[]).map(x=>String(x==null?'':x).trim());
+  const col=name=>header.findIndex(h=>h.toLowerCase()===name.toLowerCase());
+  const ci={inv:col('Invoice#'),date:col('Invoice Date'),cust:col('Customer Name'),q:col('Quarter'),mo:col('Month'),yr:col('Years'),mode:col('Mode'),amt:col('Invoice Amount'),cost:col('Cost'),sp:col('Sales Person')};
+  const need={ 'Invoice#':ci.inv,'Invoice Date':ci.date,'Customer Name':ci.cust,'Years':ci.yr,'Mode':ci.mode,'Invoice Amount':ci.amt,'Cost':ci.cost,'Sales Person':ci.sp };
+  const miss=Object.entries(need).filter(([k,v])=>v<0).map(([k])=>k);
+  if(miss.length) throw new Error('Missing column(s): '+miss.join(', ')+'. Keep the header row exactly as in the template.');
+  const M=['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+  const mIdx=s=>{s=String(s==null?'':s).trim().slice(0,3).toLowerCase();return M.findIndex(m=>m.toLowerCase()===s);};
+  function toISO(v){
+    if(v instanceof Date && !isNaN(v))return new Date(v.getTime()-v.getTimezoneOffset()*60000).toISOString().slice(0,10);
+    if(typeof v==='number' && isFinite(v))return new Date(Date.UTC(1899,11,30)+Math.round(v)*86400000).toISOString().slice(0,10);
+    if(v!=null){const d=new Date(v);if(!isNaN(d))return d.toISOString().slice(0,10);}
+    return null;
+  }
+  const data=[];
+  for(let i=1;i<grid.length;i++){const r=grid[i];if(!r)continue;
+    const inv=r[ci.inv];if(inv==null||String(inv).trim()==='')continue;
+    const cust=String(r[ci.cust]==null?'':r[ci.cust]).trim();if(!cust)continue;
+    const iso=toISO(r[ci.date]);
+    const amt=Number(r[ci.amt])||0, cost=Number(r[ci.cost])||0;
+    let yr=parseInt(r[ci.yr]); if(!yr && iso) yr=+iso.slice(0,4);
+    let mo=ci.mo>=0?mIdx(r[ci.mo]):-1; if(mo<0 && iso) mo=+iso.slice(5,7)-1;
+    let q=ci.q>=0?String(r[ci.q]==null?'':r[ci.q]).trim().toUpperCase():''; if(!/^Q[1-4]$/.test(q) && mo>=0) q='Q'+(Math.floor(mo/3)+1);
+    data.push({inv:String(inv).trim(),iso,cust,mode:String(r[ci.mode]==null?'':r[ci.mode]).trim()||'—',sp:String(r[ci.sp]==null?'':r[ci.sp]).trim()||'—',yr,mo,q,amt,cost,profit:+(amt-cost).toFixed(2)});
+  }
+  if(!data.length) throw new Error('No data rows found under the header.');
+  // merge customer case/space variants → most common spelling
+  const grp={}; data.forEach(d=>{const k=d.cust.toUpperCase();(grp[k]=grp[k]||{}); grp[k][d.cust]=(grp[k][d.cust]||0)+1;});
+  const canon={}; Object.entries(grp).forEach(([k,m])=>canon[k]=Object.entries(m).sort((a,b)=>b[1]-a[1])[0][0]);
+  data.forEach(d=>d.cust=canon[d.cust.toUpperCase()]);
+  const enc=key=>{const s=[...new Set(data.map(d=>d[key]))].sort((a,b)=>String(a).localeCompare(String(b)));const idx={};s.forEach((v,i)=>idx[v]=i);return[s,idx];};
+  const [cV,cI]=enc('cust'),[mV,mI]=enc('mode'),[sV,sI]=enc('sp');
+  const rows=data.map(d=>[d.inv,d.iso,cI[d.cust],mI[d.mode],sI[d.sp],d.yr,d.mo,d.q,d.amt,d.cost,d.profit]);
+  const isos=data.map(d=>d.iso).filter(Boolean).sort();
+  const sum=k=>data.reduce((a,d)=>a+d[k],0);
+  return {schema:['inv','date','c','m','s','yr','mo','q','rev','cost','profit'],customers:cV,modes:mV,salespeople:sV,months:M,rows,
+    meta:{source:filename,generated:new Date().toISOString().slice(0,16).replace('T',' '),record_count:rows.length,
+      date_min:isos[0]||'',date_max:isos[isos.length-1]||'',total_revenue:+sum('amt').toFixed(2),total_cost:+sum('cost').toFixed(2),total_profit:+sum('profit').toFixed(2)}};
+}
+function handleUpload(file){
+  if(typeof XLSX==='undefined'){toast('Excel reader needs an internet connection','warn');return;}
+  const rd=new FileReader();
+  rd.onload=()=>{try{
+    const payload=parseWorkbook(rd.result,file.name);
+    localStorage.setItem('fc_userData',JSON.stringify(payload));
+    toast('Loaded '+num(payload.meta.record_count)+' rows — refreshing…','ok');
+    setTimeout(()=>location.reload(),700);
+  }catch(e){toast('Upload failed: '+e.message,'warn');console.error(e);}};
+  rd.onerror=()=>toast('Could not read the file','warn');
+  rd.readAsArrayBuffer(file);
+}
+function renderFoot(){
+  const usingUser=!!(function(){try{return localStorage.getItem('fc_userData');}catch(e){return null;}})();
+  $('#foot').innerHTML=`
+    <div class="foot-meta">
+      <div class="fr"><span>Data range</span><b>${DB.meta.date_min||'—'} → ${DB.meta.date_max||'—'}</b></div>
+      <div class="fr"><span>File</span><b class="ell" title="${DB.meta.source||''}">${DB.meta.source||'—'}</b></div>
+      <div class="fr"><span>Last updated</span><b>${DB.meta.generated||'—'}</b></div>
+    </div>
+    <button class="btn sm pri" id="upBtn" style="width:100%;margin-top:10px;justify-content:center">⭱ Upload Excel</button>
+    <input type="file" id="upInput" accept=".xlsx,.xls" hidden>
+    <div style="display:flex;gap:6px;margin-top:6px">
+      <button class="btn sm" id="dlBtn" style="flex:1;justify-content:center">⭳ Data</button>
+      ${usingUser?'<button class="btn sm" id="rstBtn" style="flex:1;justify-content:center">↺ Sample</button>':''}
+    </div>`;
+  $('#upBtn').onclick=()=>$('#upInput').click();
+  $('#upInput').onchange=e=>{const f=e.target.files[0];if(f)handleUpload(f);};
+  $('#dlBtn').onclick=exportCleaned;$('#dlBtn').title='Download current data as Excel';
+  if(usingUser){$('#rstBtn').onclick=()=>{try{localStorage.removeItem('fc_userData');}catch(e){}toast('Reverting to bundled sample…');setTimeout(()=>location.reload(),600);};}
+}
+
+/* ============================================================
    MODALS + CONFIRM
    ============================================================ */
 function openModal(title,bodyHtml,onSave,saveLabel){const m=$('#modal');
@@ -1026,7 +1079,7 @@ function emptyState(ico,h,p,btn,fn){return `<div class="empty"><div class="ico">
 /* ============================================================
    NAV + RENDER
    ============================================================ */
-const TITLES={exec:['Dashboard','Company-wide sales & profitability'],customers:['Customer Analysis','Per-customer performance & YoY'],salespeople:['Salesperson Performance','Rep leaderboard & margin quality'],quarter:['Quarterly Comparison','Compare Q1–Q4 across years'],pnl:['Profit & Loss','Dynamic P&L from live data'],expenses:['Operational Expenses','Editable cost ledger'],banks:['Bank Management','Balances & daily ledger'],cashflow:['Cash Flow Control','Liquidity & runway'],data:['Data & Audit','Model, cleaning log & exports']};
+const TITLES={exec:['Dashboard','Company-wide sales & profitability'],customers:['Customer Analysis','Per-customer performance & YoY'],salespeople:['Salesperson Performance','Rep leaderboard & margin quality'],quarter:['Quarterly Comparison','Compare Q1–Q4 across years'],pnl:['Profit & Loss','Dynamic P&L from live data'],expenses:['Operational Expenses','Editable cost ledger'],banks:['Bank Management','Balances & daily ledger'],cashflow:['Cash Flow Control','Liquidity & runway']};
 let currentPage='exec';
 function navigate(page){currentPage=page;
   document.querySelectorAll('.nav a').forEach(a=>a.classList.toggle('active',a.dataset.page===page));
@@ -1049,23 +1102,24 @@ function render(){
   else if(currentPage==='expenses')renderExpenses();
   else if(currentPage==='banks')renderBanks();
   else if(currentPage==='cashflow')renderCashflow();
-  else if(currentPage==='data')renderData();
 }
 document.getElementById('nav').addEventListener('click',e=>{const a=e.target.closest('a');if(a)navigate(a.dataset.page);});
-$('#exportBtn').onclick=()=>{if(['exec','customers','salespeople','quarter','pnl'].includes(currentPage))currentExport();else if(currentPage==='data')exportCleaned();else backupData();};
+$('#exportBtn').onclick=()=>{if(['exec','customers','salespeople','quarter','pnl'].includes(currentPage))currentExport();else backupData();};
 $('#themeBtn').onclick=()=>{const h=document.documentElement;const dark=h.getAttribute('data-theme')==='dark';h.setAttribute('data-theme',dark?'light':'dark');STORE.write('theme',dark?'light':'dark');render();};
 
 /* ---------- boot ---------- */
 (function boot(){
   const t=STORE.read('theme','light');document.documentElement.setAttribute('data-theme',t);
-  $('#foot').innerHTML=`<b>${num(ROWS.length)}</b> invoices loaded<br>Source: ${DB.meta.source}<br>Cleaned: ${DB.meta.generated}`;
+  $('#foot').innerHTML='';renderFoot();
   initLogo();initFilters();navigate('exec');var bs=document.getElementById('bootScreen');if(bs)bs.style.display='none';
 })();
 
 } /* end startApp */
 
-/* ---- data loader: works on GitHub Pages and any static host ---- */
+/* ---- data loader: uploaded data (localStorage) first, then bundled data.json ---- */
 (function(){
+  var stored=null; try{ stored=localStorage.getItem('fc_userData'); }catch(e){}
+  if(stored){ try{ window.__DATA=JSON.parse(stored); startApp(); return; }catch(e){ try{localStorage.removeItem('fc_userData');}catch(_){}} }
   fetch('./data.json',{cache:'no-store'})
     .then(function(r){ if(!r.ok) throw new Error('HTTP '+r.status); return r.json(); })
     .then(function(d){ window.__DATA=d; try{ startApp(); }catch(e){ bootError('Startup error: '+e.message); console.error(e); } })

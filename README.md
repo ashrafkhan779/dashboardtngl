@@ -33,18 +33,41 @@ python -m http.server
 
 Then open `http://localhost:8000`.
 
-## Updating the data
+## Updating the data — two ways
 
-When you get a new Excel export, drop it in the folder and run:
+**Easiest — upload in the app (no tools needed):**
+
+1. Open `Sales_Data_Template.xlsx` (included). It already holds your current data.
+2. Add new invoices as rows on the **Input Data** sheet. Fill Invoice#, Invoice Date, Customer
+   Name, Quarter, Month, Years, Mode, Invoice Amount, Cost, Sales Person. **Profit and Gross %
+   calculate themselves** — leave them alone.
+3. Save, then in the dashboard click **⭱ Upload Excel** (bottom-left). Every chart, KPI and table
+   refreshes instantly. Your uploaded data is remembered on that device; click **↺ Sample** to
+   revert to the bundled data.
+
+The upload is cleaned automatically (duplicate customers merged, dates repaired, profit recomputed)
+— the same logic as `convert.py`.
+
+**Alternative — regenerate data.json with the script:**
 
 ```bash
 pip install pandas numpy openpyxl        # first time only
 python convert.py "Your New File.xlsx"   # writes a fresh data.json
 ```
 
-Commit the new `data.json` and GitHub Pages updates itself. The script expects a sheet named
-`Input Data` with these columns: `Invoice#, Invoice Date, Customer Name, Quarter, Month, Years,
-Mode, Invoice Amount, Cost, Sales Person`.
+Commit the new `data.json` and GitHub Pages updates itself. The script and the uploader both expect
+a sheet named `Input Data` with columns: `Invoice#, Invoice Date, Customer Name, Quarter, Month,
+Years, Mode, Invoice Amount, Cost, Sales Person`.
+
+## Files
+
+| File | What it is |
+|---|---|
+| `index.html` | The whole app. |
+| `data.json` | Bundled dataset the dashboard loads on first run. |
+| `Sales_Data_Template.xlsx` | Edit this and upload it (or feed it to convert.py). |
+| `convert.py` | Regenerates `data.json` from an Excel file. |
+| `README.md` | This file. |
 
 ## What the dashboard does
 
@@ -59,7 +82,6 @@ Mode, Invoice Amount, Cost, Sales Person`.
 - **Operational Expenses / Bank Management / Cash Flow** — editable modules stored in your browser
   (`localStorage`). No source data existed for these, so you enter records; they feed the P&L and
   cash-flow runway automatically.
-- **Data & Audit** — the cleaning log, standard data model, and exports.
 
 **Filters** (Year, Mode, Salesperson multi-select with an *All* option; Quarter, Month, Customer)
 drive every analytics view. Upload your **logo** via the mark or "Upload logo" under the brand.
