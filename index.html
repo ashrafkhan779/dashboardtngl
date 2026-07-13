@@ -204,8 +204,8 @@ body{background:
 .card .head h3 .hic{color:var(--accent);display:inline-flex}
 .card .head h3 .hic svg{width:16px;height:16px}
 .topbar .title{background:none}
-.mode-legend{display:flex;flex-direction:column;gap:8px;padding:4px 2px}
-.mode-legend .row{display:flex;align-items:center;gap:9px;font-size:12.5px}
+.mode-legend{display:flex;flex-wrap:wrap;gap:8px 14px;padding:4px 2px}
+.mode-legend .row{display:flex;align-items:center;gap:9px;font-size:12px;flex:1 1 45%;min-width:200px}
 .mode-legend .ic{width:26px;height:26px;border-radius:8px;display:grid;place-items:center;color:#fff;flex:none}
 .mode-legend .ic svg{width:15px;height:15px}
 .mode-legend .nm{font-weight:600}
@@ -263,6 +263,7 @@ body{background:
       <a data-page="exec" class="active"><span class="ic" data-i="grid"></span> Dashboard</a>
       <a data-page="customers"><span class="ic" data-i="user"></span> Customer Analysis</a>
       <a data-page="salespeople"><span class="ic" data-i="chart"></span> Salesperson Performance</a>
+      <a data-page="quarter"><span class="ic" data-i="pnl"></span> Quarterly Comparison</a>
       <div class="grp">Finance</div>
       <a data-page="pnl"><span class="ic" data-i="pnl"></span> Profit &amp; Loss</a>
       <a data-page="expenses"><span class="ic" data-i="receipt"></span> Operational Expenses</a>
@@ -285,12 +286,12 @@ body{background:
 
     <!-- GLOBAL FILTERS -->
     <div class="filterbar" id="filterbar">
-      <div class="fitem"><label>Year</label><div class="msel" id="mYear"></div></div>
-      <div class="fitem"><label>Quarter</label><select id="fQuarter"><option value="">All</option><option>Q1</option><option>Q2</option><option>Q3</option><option>Q4</option></select></div>
-      <div class="fitem"><label>Month</label><select id="fMonth"><option value="">All</option></select></div>
-      <div class="fitem"><label>Mode</label><div class="msel" id="mMode"></div></div>
-      <div class="fitem"><label>Salesperson</label><div class="msel" id="mSales"></div></div>
-      <div class="fitem"><label>Customer</label><select id="fCust"><option value="">All customers</option></select></div>
+      <div class="fitem" id="fi-year"><label>Year</label><div class="msel" id="mYear"></div></div>
+      <div class="fitem" id="fi-quarter"><label>Quarter</label><select id="fQuarter"><option value="">All</option><option>Q1</option><option>Q2</option><option>Q3</option><option>Q4</option></select></div>
+      <div class="fitem" id="fi-month"><label>Month</label><select id="fMonth"><option value="">All</option></select></div>
+      <div class="fitem" id="fi-mode"><label>Mode</label><div class="msel" id="mMode"></div></div>
+      <div class="fitem" id="fi-sales"><label>Salesperson</label><div class="msel" id="mSales"></div></div>
+      <div class="fitem" id="fi-cust"><label>Customer</label><select id="fCust"><option value="">All customers</option></select></div>
       <button class="btn sm" id="resetFilters">↺ Reset</button>
     </div>
     <div class="filterbar" style="padding-top:6px;padding-bottom:6px">
@@ -302,6 +303,7 @@ body{background:
     <div class="page active" id="page-exec"></div>
     <div class="page" id="page-customers"></div>
     <div class="page" id="page-salespeople"></div>
+    <div class="page" id="page-quarter"></div>
     <div class="page" id="page-pnl"></div>
     <div class="page" id="page-expenses"></div>
     <div class="page" id="page-banks"></div>
@@ -428,14 +430,14 @@ function buildMsel(hostId,items,onChange){
   const allbox=host.querySelector('.allbox'),boxes=Array.from(host.querySelectorAll('.msel-opt:not(.all) input'));
   btn.onclick=e=>{e.stopPropagation();document.querySelectorAll('.msel').forEach(m=>{if(m!==host)m.classList.remove('open');});host.classList.toggle('open');};
   panel.onclick=e=>e.stopPropagation();
-  function sync(){const sel=boxes.filter(b=>b.checked).map(b=>+b.value);
+  function sync(skip){const sel=boxes.filter(b=>b.checked).map(b=>+b.value);
     allbox.checked=sel.length===0;
     if(sel.length===0)lbl.innerHTML='All';
     else lbl.innerHTML=(sel.length<=2?sel.map(i=>items[i]).join(', '):sel.length+' selected')+` <span class="cnt">${sel.length}</span>`;
-    onChange(sel);}
+    if(!skip)onChange(sel);}
   allbox.onclick=()=>{boxes.forEach(b=>b.checked=false);sync();};
-  boxes.forEach(b=>b.onchange=sync);
-  host._reset=()=>{boxes.forEach(b=>b.checked=false);sync();};
+  boxes.forEach(b=>b.onchange=()=>sync());
+  host._reset=()=>{boxes.forEach(b=>b.checked=false);sync(true);};
   return host;
 }
 function initFilters(){
@@ -452,8 +454,15 @@ function initFilters(){
   fm.onchange=e=>{F.month=e.target.value;render();};
   fc.onchange=e=>{F.customer=e.target.value;render();};
   document.addEventListener('click',()=>document.querySelectorAll('.msel').forEach(m=>m.classList.remove('open')));
-  $('#resetFilters').onclick=()=>{F.years=[];F.quarter='';F.month='';F.modes=[];F.sales=[];F.customer='';
-    ['mYear','mMode','mSales'].forEach(id=>$('#'+id)._reset&&$('#'+id)._reset());$('#fQuarter').value='';fm.value='';fc.value='';render();};
+  $('#resetFilters').onclick=resetAllFilters;
+}
+function resetAllFilters(){
+  F.years=[];F.quarter='';F.month='';F.modes=[];F.sales=[];F.customer='';
+  ['mYear','mMode','mSales'].forEach(id=>{var m=$('#'+id);if(m&&m._reset)m._reset();});
+  var q=$('#fQuarter'),mo=$('#fMonth'),c=$('#fCust');
+  if(q)q.value='';if(mo)mo.value='';if(c)c.value='';
+  render();
+  toast('All filters cleared','ok');
 }
 function filterSummary(){
   const s=$('#filtSummary');s.innerHTML='';
@@ -517,7 +526,7 @@ function renderExec(){
      </div>
      <div class="card">
        <div class="head"><h3><span class="hic">${SVG.globe}</span>Sales by Mode</h3><span class="hint">click to filter</span></div>
-       <div class="body"><div style="display:flex;gap:8px;align-items:center"><div class="chart-wrap" style="flex:1;height:250px"><canvas id="cMode"></canvas></div><div class="mode-legend" id="modeLegend"></div></div></div>
+       <div class="body"><div class="chart-wrap sm" style="height:210px"><canvas id="cMode"></canvas></div><div class="mode-legend" id="modeLegend" style="margin-top:10px"></div></div>
      </div>
    </div>
 
@@ -533,15 +542,14 @@ function renderExec(){
      </div>
    </div>
 
-   <div class="grid g2">
-     <div class="card">
-       <div class="head"><h3>Top 20 Customers by Sales</h3><span class="hint">click a row → Customer Analysis</span></div>
-       <div class="body pad0"><div class="tablescroll" id="topCustTbl"></div></div>
-     </div>
-     <div class="card">
-       <div class="head"><h3>Salesperson Summary</h3></div>
-       <div class="body pad0"><div class="tablescroll" id="spSummary"></div></div>
-     </div>
+   <div class="card" style="margin-bottom:16px">
+     <div class="head"><h3><span class="hic">${SVG.user}</span>Top 20 Customers by Sales</h3><span class="hint">click a row → Customer Analysis</span></div>
+     <div class="body pad0"><div class="tablescroll" id="topCustTbl"></div></div>
+   </div>
+
+   <div class="card">
+     <div class="head"><h3><span class="hic">${SVG.chart}</span>Salesperson Summary</h3></div>
+     <div class="body pad0"><div class="tablescroll" id="spSummary"></div></div>
    </div>`;
 
   // yearly chart
@@ -614,7 +622,7 @@ window.gotoSales=function(s){navigate('salespeople');setTimeout(()=>{const el2=$
    PAGE: CUSTOMER ANALYSIS
    ============================================================ */
 function customerStats(cIdx,year){
-  const rows=ROWS.filter(r=>r[I.c]===cIdx && (!F.modes.length||F.modes.includes(r[I.m])) && (!F.sales.length||F.sales.includes(r[I.s])) && (year==null||r[I.yr]===year));
+  const rows=ROWS.filter(r=>r[I.c]===cIdx && (!F.modes.length||F.modes.includes(r[I.m])) && (F.month===''||r[I.mo]==+F.month) && (year==null||r[I.yr]===year));
   return agg(rows);
 }
 function renderCustomers(){
@@ -633,7 +641,7 @@ function renderCustomers(){
       <div class="field"><label>Compare year 3</label><select id="cy2">${yopt(true)}</select></div>
       <span class="hint" style="font-size:11px;color:var(--neutral);padding-bottom:8px">Pick up to three years to compare side by side</span>
     </div>
-    <div id="custBody"><div class="empty"><div class="ico">◎</div><h4>Select a customer to begin</h4><p>Side-by-side multi-year comparison of sales, margin and invoices, plus full invoice history — across ${CUST.length} customers.</p></div></div>`;
+    <div id="custBody"><div class="empty"><div class="ico">◎</div><h4>Select a customer to begin</h4><p>Side-by-side multi-year comparison of sales, margin and invoices across ${CUST.length} customers. Use the Month and Mode filters above to narrow the comparison.</p></div></div>`;
   const sel=$('#custSelect');
   const y0=$('#cy0'),y1=$('#cy1'),y2=$('#cy2');
   y0.value=last3[0]??YEARS[YEARS.length-1];y1.value=last3[1]??'';y2.value=last3[2]??'';
@@ -689,9 +697,7 @@ function drawCustomer(cv,years,ranked){
      <div class="body pad0"><div class="tablescroll"><table class="cmp-tbl"><thead><tr><th>Metric</th>${stats.map(st=>`<th class="yr num">${st.y}</th>`).join('')}</tr></thead><tbody>${cmpRows}</tbody></table></div></div></div>
 
    <div class="card" style="margin-bottom:16px"><div class="head"><h3><span class="hic">${SVG.pnl}</span>Sales &amp; Gross Profit by Year</h3></div>
-     <div class="body"><div class="chart-wrap"><canvas id="cCustCmp"></canvas></div></div></div>
-
-   <div class="card"><div class="head"><h3><span class="hic">${SVG.invoice}</span>Invoice History</h3><span class="hint">${custRows.length} invoices</span></div><div class="body pad0"><div class="tablescroll" id="custInv"></div></div></div>`;
+     <div class="body"><div class="chart-wrap"><canvas id="cCustCmp"></canvas></div></div></div>`;
 
   // grouped comparison chart with data labels
   mkChart('cCustCmp',{type:'bar',data:{labels:stats.map(st=>String(st.y)),datasets:[
@@ -699,11 +705,6 @@ function drawCustomer(cv,years,ranked){
     {label:'Gross Profit',data:stats.map(st=>st.s.pf),backgroundColor:PAL.steel(),borderRadius:5}]},
     options:{maintainAspectRatio:false,layout:{padding:{top:22}},plugins:{legend:{position:'top',labels:{boxWidth:12}},datalabels:dl(),tooltip:{callbacks:{label:x=>x.dataset.label+': '+AED2(x.raw)}}},
       scales:{y:{...gridOpt(),ticks:{color:css('--ink-2'),callback:v=>kfmt(v)}},x:gridOpt()}}});
-
-  // invoice table
-  let ih='<table><thead><tr><th>Invoice</th><th>Date</th><th>Mode</th><th class="num">Amount</th><th class="num">Profit</th><th class="num">GP%</th></tr></thead><tbody>';
-  custRows.slice(0,300).forEach(r=>{const gp=r[I.rev]?r[I.profit]/r[I.rev]:0;ih+=`<tr><td class="mono">${r[I.inv]}</td><td>${r[I.date]}</td><td>${MODES[r[I.m]]}</td><td class="num">${AED2(r[I.rev])}</td><td class="num ${r[I.profit]<0?'down':''}">${AED2(r[I.profit])}</td><td class="num">${pct(gp)}</td></tr>`;});
-  ih+='</tbody></table>';$('#custInv').innerHTML=ih;
 }
 
 /* ============================================================
@@ -718,19 +719,17 @@ function renderSalespeople(){
   p.innerHTML=`
    <div class="notice">◆ This dataset attributes ${pct(agg(ROWS.filter(r=>SP[r[I.s]]==='MANAGEMENT')).rev/agg(ROWS).rev)} of revenue to a <b>MANAGEMENT</b> pool rather than a named rep — a data-governance gap flagged in the audit. Attribution below reflects the file as recorded.</div>
    <div class="kpigrid" id="spKpis"></div>
-   <div class="grid g2" style="margin-bottom:16px">
-     <div class="card"><div class="head"><h3>Leaderboard — Sales, Margin & Concentration</h3></div><div class="body pad0"><div id="spBoard"></div></div></div>
-     <div class="card"><div class="head"><h3>Sales vs Margin Quality</h3><span class="hint">bubble = invoice count</span></div><div class="body"><div class="chart-wrap"><canvas id="cSpScatter"></canvas></div></div></div>
-   </div>
-   <div class="card"><div class="head"><h3>Monthly Sales by Rep — ${ry}</h3><div class="seg" id="spFocusWrap"><select id="spFocus" style="border:none;background:transparent;font-weight:600"></select></div></div><div class="body"><div class="chart-wrap"><canvas id="cSpTrend"></canvas></div></div></div>`;
+   <div class="card" style="margin-bottom:16px"><div class="head"><h3><span class="hic">${SVG.chart}</span>Leaderboard — Sales, Margin &amp; Concentration</h3></div><div class="body pad0"><div class="tablescroll" id="spBoard"></div></div></div>
+   <div class="card" style="margin-bottom:16px"><div class="head"><h3><span class="hic">${SVG.margin}</span>Sales vs Margin Quality</h3><span class="hint">bubble size = invoice count</span></div><div class="body"><div class="chart-wrap"><canvas id="cSpScatter"></canvas></div></div></div>
+   <div class="card"><div class="head"><h3><span class="hic">${SVG.pnl}</span>Monthly Sales by Rep</h3><div style="display:flex;gap:8px;align-items:center"><select id="spYear" style="padding:5px 9px;border:1px solid var(--line);border-radius:7px;background:var(--panel);color:var(--ink)"></select><div class="seg"><select id="spFocus" style="border:none;background:transparent;font-weight:600;padding:5px 8px"></select></div></div></div><div class="body"><div class="chart-wrap"><canvas id="cSpTrend"></canvas></div></div></div>`;
 
   // KPI cards for top rep
   const kg=$('#spKpis');
   arr.slice(0,4).forEach(x=>{kg.innerHTML+=`<div class="kpi"><div class="accent-bar"></div><div class="lab">${SP[x.s]}</div><div class="val" style="font-size:22px">${AED2(x.rev)}</div><span class="delta flat">GP ${pct(x.gp)} · ${x.inv} inv · ${x.cust} cust</span></div>`;});
 
-  // leaderboard
-  let bh='<table><thead><tr><th>#</th><th>Rep</th><th class="num">Sales</th><th class="num">GP</th><th class="num">GP%</th><th class="num">Inv</th><th class="num">Avg Inv</th><th class="num">Cust</th><th class="num">Rev Share</th></tr></thead><tbody>';
-  arr.forEach((x,i)=>{bh+=`<tr><td class="rankcell">${i+1}</td><td><b>${SP[x.s]}</b></td><td class="num">${AED2(x.rev)}</td><td class="num">${AED2(x.pf)}</td><td class="num"><span class="pill ${x.gp>=0.2?'pos':x.gp>=0.1?'neu':'neg'}">${pct(x.gp)}</span></td><td class="num">${x.inv}</td><td class="num">${AED2(x.aiv)}</td><td class="num">${x.cust}</td><td class="num">${pct(x.rev/totalRev)}</td></tr>`;});
+  // leaderboard (Avg Inv removed)
+  let bh='<table><thead><tr><th>#</th><th>Rep</th><th class="num">Sales</th><th class="num">GP</th><th class="num">GP%</th><th class="num">Inv</th><th class="num">Cust</th><th class="num">Rev Share</th></tr></thead><tbody>';
+  arr.forEach((x,i)=>{bh+=`<tr><td class="rankcell">${i+1}</td><td><b>${SP[x.s]}</b></td><td class="num">${AED2(x.rev)}</td><td class="num">${AED2(x.pf)}</td><td class="num"><span class="pill ${x.gp>=0.2?'pos':x.gp>=0.1?'neu':'neg'}">${pct(x.gp)}</span></td><td class="num">${x.inv}</td><td class="num">${x.cust}</td><td class="num">${pct(x.rev/totalRev)}</td></tr>`;});
   bh+='</tbody></table>';$('#spBoard').innerHTML=bh;
 
   // scatter
@@ -738,13 +737,70 @@ function renderSalespeople(){
     options:{maintainAspectRatio:false,plugins:{legend:{position:'top',labels:{boxWidth:10}},tooltip:{callbacks:{label:c=>c.dataset.label+': '+AED2(c.raw.x)+' · '+c.raw.y.toFixed(1)+'% GP'}}},
       scales:{x:{...gridOpt(),title:{display:true,text:'Sales',color:css('--ink-2')},ticks:{color:css('--ink-2'),callback:v=>(v/1e6).toFixed(1)+'M'}},y:{...gridOpt(),title:{display:true,text:'Gross Margin %',color:css('--ink-2')}}}}});
 
-  // trend
+  // trend with year + rep selectors
   const focus=$('#spFocus');arr.forEach(x=>{const o=el('option');o.value=x.s;o.textContent=SP[x.s];focus.appendChild(o);});
-  function drawSpTrend(){const s=+focus.value;mkChart('cSpTrend',{data:{labels:MON,datasets:[
-    {type:'bar',label:'Sales',data:MON.map((_,mi)=>agg(ROWS.filter(r=>r[I.s]===s&&r[I.yr]===ry&&r[I.mo]===mi)).rev),backgroundColor:css('--accent-soft'),borderColor:PAL.accent(),borderWidth:1,borderRadius:4},
-    {type:'line',label:'Gross Profit',data:MON.map((_,mi)=>agg(ROWS.filter(r=>r[I.s]===s&&r[I.yr]===ry&&r[I.mo]===mi)).pf),borderColor:PAL.gold(),tension:.3,pointRadius:2}]},
+  const spYear=$('#spYear');YEARS.slice().reverse().forEach(y=>{const o=el('option');o.value=y;o.textContent=y;spYear.appendChild(o);});spYear.value=ry;
+  function drawSpTrend(){const s=+focus.value,yy=+spYear.value;mkChart('cSpTrend',{data:{labels:MON,datasets:[
+    {type:'bar',label:'Sales',data:MON.map((_,mi)=>agg(ROWS.filter(r=>r[I.s]===s&&r[I.yr]===yy&&r[I.mo]===mi)).rev),backgroundColor:css('--accent-soft'),borderColor:PAL.accent(),borderWidth:1,borderRadius:4},
+    {type:'line',label:'Gross Profit',data:MON.map((_,mi)=>agg(ROWS.filter(r=>r[I.s]===s&&r[I.yr]===yy&&r[I.mo]===mi)).pf),borderColor:PAL.gold(),tension:.3,pointRadius:2}]},
     options:{maintainAspectRatio:false,plugins:{legend:{position:'top',labels:{boxWidth:11}},tooltip:{callbacks:{label:c=>c.dataset.label+': '+AED2(c.raw)}}},scales:{y:{...gridOpt(),ticks:{color:css('--ink-2'),callback:v=>(v/1e3).toFixed(0)+'K'}},x:gridOpt()}}});}
-  focus.onchange=drawSpTrend;drawSpTrend();
+  focus.onchange=drawSpTrend;spYear.onchange=drawSpTrend;drawSpTrend();
+}
+
+/* ============================================================
+   PAGE: QUARTERLY COMPARISON
+   ============================================================ */
+function renderQuarter(){
+  const p=$('#page-quarter');const QS=['Q1','Q2','Q3','Q4'];
+  let selYears=YEARS.slice();let metric='rev';
+  const qstat=(y,q)=>agg(ROWS.filter(r=>r[I.yr]===y&&r[I.q]===q));
+  const MD={rev:{lab:'Sales',get:s=>s.rev,fmt:AED2},pf:{lab:'Gross Profit',get:s=>s.pf,fmt:AED2},gp:{lab:'Gross Margin %',get:s=>s.gp,fmt:pct}};
+  const lbl='font-size:10px;text-transform:uppercase;letter-spacing:.05em;color:var(--neutral);font-weight:600;display:block;margin-bottom:6px';
+  p.innerHTML=`
+   <div class="pagehead"><h2>Quarterly Comparison</h2><p>Compare Q1–Q4 performance across years. Toggle which years to include and the metric to chart.</p></div>
+   <div style="display:flex;gap:20px;flex-wrap:wrap;align-items:flex-start;margin-bottom:18px">
+     <div><label style="${lbl}">Years to compare</label><div id="qYears" style="display:flex;gap:6px;flex-wrap:wrap"></div></div>
+     <div><label style="${lbl}">Chart metric</label><div class="seg" id="qMetric"><button class="on" data-k="rev">Sales</button><button data-k="pf">Gross Profit</button><button data-k="gp">Margin %</button></div></div>
+   </div>
+   <div class="kpigrid" id="qKpis"></div>
+   <div class="card" style="margin-bottom:16px"><div class="head"><h3><span class="hic">${SVG.chart}</span><span id="qChartTitle">Sales</span> by Quarter <span style="color:var(--neutral);font-weight:400">— year over year</span></h3></div><div class="body"><div class="chart-wrap tall"><canvas id="cQ1"></canvas></div></div></div>
+   <div class="card" style="margin-bottom:16px"><div class="head"><h3><span class="hic">${SVG.pnl}</span>Sales, Gross Profit &amp; Margin by Quarter</h3><span class="hint">selected years combined</span></div><div class="body"><div class="chart-wrap"><canvas id="cQ2"></canvas></div></div></div>
+   <div class="card"><div class="head"><h3><span class="hic">${SVG.invoice}</span>Comparison Table</h3><span class="hint">Δ vs prior year column</span></div><div class="body pad0"><div class="tablescroll" id="qTable"></div></div></div>`;
+
+  const yWrap=$('#qYears');
+  YEARS.forEach(y=>{const b=el('button','btn sm'+(selYears.includes(y)?' pri':''));b.textContent=y;
+    b.onclick=()=>{if(selYears.includes(y)&&selYears.length>1)selYears=selYears.filter(x=>x!==y);else if(!selYears.includes(y))selYears.push(y);selYears.sort();
+      yWrap.querySelectorAll('button').forEach(bb=>bb.classList.toggle('pri',selYears.includes(+bb.textContent)));draw();};
+    yWrap.appendChild(b);});
+  $('#qMetric').querySelectorAll('button').forEach(b=>b.onclick=()=>{$('#qMetric').querySelectorAll('button').forEach(x=>x.classList.remove('on'));b.classList.add('on');metric=b.dataset.k;draw();});
+
+  function draw(){
+    const md=MD[metric];$('#qChartTitle').textContent=md.lab;
+    $('#qKpis').innerHTML=QS.map(q=>{const t=agg(ROWS.filter(r=>selYears.includes(r[I.yr])&&r[I.q]===q));
+      return `<div class="kpi"><div class="accent-bar"></div><div class="lab">${q} · Sales</div><div class="val" style="font-size:20px">${AED2(t.rev)}</div><span class="delta flat">GP ${pct(t.gp)} · ${t.inv} inv</span></div>`;}).join('');
+    // grouped bar: quarter groups, one series per selected year
+    mkChart('cQ1',{type:'bar',data:{labels:QS,datasets:selYears.map((y,i)=>({label:String(y),data:QS.map(q=>md.get(qstat(y,q))),backgroundColor:modePalette[i%modePalette.length],borderRadius:4}))},
+      options:{maintainAspectRatio:false,layout:{padding:{top:22}},plugins:{legend:{position:'top',labels:{boxWidth:12}},datalabels:metric==='gp'?{display:false}:dl(),
+        tooltip:{callbacks:{label:c=>c.dataset.label+': '+md.fmt(md.get(qstat(+c.dataset.label,QS[c.dataIndex])))}}},
+        scales:{y:{...gridOpt(),ticks:{color:css('--ink-2'),callback:v=>metric==='gp'?v.toFixed(0)+'%':kfmt(v)}},x:gridOpt()}}});
+    // sales + GP bars + margin line (combined)
+    const qAgg=QS.map(q=>agg(ROWS.filter(r=>selYears.includes(r[I.yr])&&r[I.q]===q)));
+    mkChart('cQ2',{data:{labels:QS,datasets:[
+      {type:'bar',label:'Sales',data:qAgg.map(s=>s.rev),backgroundColor:PAL.accent(),borderRadius:5,order:3},
+      {type:'bar',label:'Gross Profit',data:qAgg.map(s=>s.pf),backgroundColor:PAL.steel(),borderRadius:5,order:2},
+      {type:'line',label:'Margin %',yAxisID:'y1',data:qAgg.map(s=>s.gp*100),borderColor:PAL.gold(),backgroundColor:PAL.gold(),tension:.3,pointRadius:3,order:1}]},
+      options:{maintainAspectRatio:false,layout:{padding:{top:22}},plugins:{legend:{position:'top',labels:{boxWidth:12}},datalabels:{display:false},
+        tooltip:{callbacks:{label:c=>c.dataset.label+': '+(c.dataset.label==='Margin %'?c.raw.toFixed(1)+'%':AED2(c.raw))}}},
+        scales:{y:{...gridOpt(),ticks:{color:css('--ink-2'),callback:v=>kfmt(v)}},y1:{position:'right',grid:{display:false},ticks:{color:css('--ink-2'),callback:v=>v.toFixed(0)+'%'}},x:gridOpt()}}});
+    // table
+    let th='<table class="cmp-tbl"><thead><tr><th>Quarter</th>'+selYears.map(y=>`<th class="yr num">${y}</th>`).join('')+'</tr></thead><tbody>';
+    QS.forEach(q=>{th+=`<tr><td class="metric">${q}</td>`+selYears.map((y,j)=>{const val=md.get(qstat(y,q));const prev=j>0?md.get(qstat(selYears[j-1],q)):null;
+      let d='';if(j>0&&prev!=null){if(metric==='gp'){const diff=(val-prev)*100;d=`<span class="delta-inline ${diff>=0?'up':'down'}">${diff>=0?'▲':'▼'}${Math.abs(diff).toFixed(1)}pt</span>`;}else{const diff=val-prev,pc=prev?diff/prev:0;d=`<span class="delta-inline ${diff>=0?'up':'down'}">${diff>=0?'▲':'▼'}${Math.abs(pc*100).toFixed(1)}%</span>`;}}
+      return `<td class="num">${md.fmt(val)}${d}</td>`;}).join('')+'</tr>';});
+    th+=`<tr style="font-weight:600;border-top:2px solid var(--line)"><td class="metric">Full Year</td>`+selYears.map(y=>`<td class="num">${md.fmt(md.get(agg(ROWS.filter(r=>r[I.yr]===y))))}</td>`).join('')+'</tr>';
+    th+='</tbody></table>';$('#qTable').innerHTML=th;
+  }
+  draw();
 }
 
 /* ============================================================
@@ -970,14 +1026,17 @@ function emptyState(ico,h,p,btn,fn){return `<div class="empty"><div class="ico">
 /* ============================================================
    NAV + RENDER
    ============================================================ */
-const TITLES={exec:['Dashboard','Company-wide sales & profitability'],customers:['Customer Analysis','Per-customer performance & YoY'],salespeople:['Salesperson Performance','Rep leaderboard & margin quality'],pnl:['Profit & Loss','Dynamic P&L from live data'],expenses:['Operational Expenses','Editable cost ledger'],banks:['Bank Management','Balances & daily ledger'],cashflow:['Cash Flow Control','Liquidity & runway'],data:['Data & Audit','Model, cleaning log & exports']};
+const TITLES={exec:['Dashboard','Company-wide sales & profitability'],customers:['Customer Analysis','Per-customer performance & YoY'],salespeople:['Salesperson Performance','Rep leaderboard & margin quality'],quarter:['Quarterly Comparison','Compare Q1–Q4 across years'],pnl:['Profit & Loss','Dynamic P&L from live data'],expenses:['Operational Expenses','Editable cost ledger'],banks:['Bank Management','Balances & daily ledger'],cashflow:['Cash Flow Control','Liquidity & runway'],data:['Data & Audit','Model, cleaning log & exports']};
 let currentPage='exec';
 function navigate(page){currentPage=page;
   document.querySelectorAll('.nav a').forEach(a=>a.classList.toggle('active',a.dataset.page===page));
   document.querySelectorAll('.page').forEach(pg=>pg.classList.remove('active'));$('#page-'+page).classList.add('active');
   $('#pageTitle').childNodes[0].nodeValue=TITLES[page][0];$('#pageSub').textContent=TITLES[page][1];
-  const filtersHidden=['expenses','banks','cashflow','data'].includes(page);
+  const filtersHidden=['quarter','expenses','banks','cashflow','data'].includes(page);
   document.querySelectorAll('.filterbar').forEach(f=>f.style.display=filtersHidden?'none':'flex');
+  // Customer Analysis: only Month + Mode filters apply
+  const custOnly=page==='customers';
+  ['fi-year','fi-quarter','fi-sales','fi-cust'].forEach(id=>{var e=$('#'+id);if(e)e.style.display=custOnly?'none':'flex';});
   document.getElementById('side').classList.remove('open');
   render();}
 function render(){
@@ -985,6 +1044,7 @@ function render(){
   if(currentPage==='exec')renderExec();
   else if(currentPage==='customers')renderCustomers();
   else if(currentPage==='salespeople')renderSalespeople();
+  else if(currentPage==='quarter')renderQuarter();
   else if(currentPage==='pnl')renderPnl();
   else if(currentPage==='expenses')renderExpenses();
   else if(currentPage==='banks')renderBanks();
@@ -992,7 +1052,7 @@ function render(){
   else if(currentPage==='data')renderData();
 }
 document.getElementById('nav').addEventListener('click',e=>{const a=e.target.closest('a');if(a)navigate(a.dataset.page);});
-$('#exportBtn').onclick=()=>{if(['exec','customers','salespeople','pnl'].includes(currentPage))currentExport();else if(currentPage==='data')exportCleaned();else backupData();};
+$('#exportBtn').onclick=()=>{if(['exec','customers','salespeople','quarter','pnl'].includes(currentPage))currentExport();else if(currentPage==='data')exportCleaned();else backupData();};
 $('#themeBtn').onclick=()=>{const h=document.documentElement;const dark=h.getAttribute('data-theme')==='dark';h.setAttribute('data-theme',dark?'light':'dark');STORE.write('theme',dark?'light':'dark');render();};
 
 /* ---------- boot ---------- */
