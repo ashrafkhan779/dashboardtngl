@@ -68,25 +68,45 @@ uploader expect a sheet named **Input Data** with the columns listed above.
 
 ---
 
-## Backup & Share
+## Auto-publish to GitHub (live for everyone)
 
-A browser can't write to `data.json` on disk, so use the **⇩ Backup / Share** button
-(bottom-left). Everything you've uploaded or typed is already saved on your device — these
-options let you back it up or share a live copy:
+To make the hosted link update automatically — with **no manual `data.json` uploads** and with
+your manual figures visible to anyone who opens it — connect the repo once:
 
+1. Open **⇩ Backup / Share ▸ Connect GitHub**.
+2. Enter your **owner**, **repository**, **branch**, and a **Personal Access Token**
+   (GitHub → Settings → Developer settings → **Fine-grained tokens**, limited to this repo with
+   **Contents: Read and write**). The token is stored **only in your browser**.
+
+Once connected:
+- **Uploading an Excel or a data.json auto-commits `data.json`** to your repo — the live link
+  updates by itself.
+- **Manual figures** (Bank Management, Operational Expenses, Cash Flow, Assets, Corporate Tax…)
+  auto-commit to **`manual-data.json`** a few seconds after you edit. A footer indicator shows
+  “✓ synced” or “● changes not published”, with a **Publish** button for an immediate push.
+- **Anyone opening the live link** loads both `data.json` and `manual-data.json`, so they see
+  the same sales data **and** manual entries — no re-entering, nothing to send.
+
+> The app reads `manual-data.json` on load if it exists. Your own unpublished edits are kept
+> until you publish; visitors always see the last published version.
+
+## Backup & Share (no GitHub needed)
+
+The same **⇩ Backup / Share** panel also offers, whether or not GitHub is connected:
+
+- **Upload data.json** — load a `data.json` backup as the live dataset (and publish it if
+  connected).
 - **Live Dashboard (single HTML)** — one self-contained file with your sales data **and** all
-  manual entries baked in. Send it to anyone; they open it and see your live data (no server,
-  no `data.json`). Works by double-click.
-- **data.json** — download the current dataset to replace in your GitHub repo, so the hosted
-  live preview updates for everyone.
+  manual entries baked in. Send it to anyone; they open it (even by double-click, no server,
+  no `data.json`) and see your live data.
+- **data.json** — download the current dataset for a manual backup or repo replacement.
 - **All Dashboard Data (Excel)** — a backup workbook of every manual entry (banks, assets,
   liabilities, expenses, corporate tax, receivables/payables, upcoming expenses).
 - **Sales Data (Excel)** — the cleaned sales dataset as an editable file to re-upload later.
 
-**Manual data persistence:** figures you enter (expenses matrix, bank balances, assets,
-corporate tax, cash-flow, etc.) are stored in your browser and persist across reloads. They
-travel with a **Live Dashboard** export, but they are per-device — to move them to another
-machine or person, export the Live Dashboard or the Excel backup.
+**Manual data persistence:** figures you enter are stored in your browser and persist across
+reloads. With GitHub connected they also live in `manual-data.json` in the repo; otherwise move
+them with a Live Dashboard export or the Excel backup.
 
 ---
 

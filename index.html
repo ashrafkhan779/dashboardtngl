@@ -362,9 +362,14 @@ function toast(msg,kind){const t=el('div','toast '+(kind||''),msg);$('#toast').a
 function css(v){return getComputedStyle(document.documentElement).getPropertyValue(v).trim();}
 
 /* ---------- persistent store (localStorage) ---------- */
+const MANUAL_KEYS=['banks','banksV2','expenses','expHeadsExtra','corpTax','assets','assetMoves','liabilities','liabMoves','rpFig','upcoming','logo'];
+let _booting=true;
 const STORE={
   read(k,def){try{const v=localStorage.getItem('fc_'+k);return v?JSON.parse(v):def;}catch(e){return def;}},
-  write(k,v){localStorage.setItem('fc_'+k,JSON.stringify(v));}
+  write(k,v){localStorage.setItem('fc_'+k,JSON.stringify(v));
+    if(!_booting&&MANUAL_KEYS.includes(k)){try{localStorage.setItem('fc_dirty','1');}catch(e){}
+      if(typeof scheduleAutoPublish==='function')scheduleAutoPublish();
+      if(typeof updatePublishState==='function')updatePublishState();}}
 };
 
 /* ---------- SVG icon library (stroke uses currentColor) ---------- */
@@ -1436,13 +1441,87 @@ function handleUpload(file){
   const rd=new FileReader();
   rd.onload=()=>{try{
     const payload=parseWorkbook(rd.result,file.name);
-    localStorage.setItem('fc_userData',JSON.stringify(payload));try{localStorage.setItem('fc_justUploaded','1');}catch(e){}
+    localStorage.setItem('fc_userData',JSON.stringify(payload));try{localStorage.setItem('fc_justUploaded','1');if(ghCfg())localStorage.setItem('fc_publishAfterBoot','1');}catch(e){}
     toast('Loaded '+num(payload.meta.record_count)+' rows — refreshing…','ok');
     setTimeout(()=>location.reload(),700);
   }catch(e){toast('Upload failed: '+e.message,'warn');console.error(e);}};
   rd.onerror=()=>toast('Could not read the file','warn');
   rd.readAsArrayBuffer(file);
 }
+/* ============================================================
+   GITHUB AUTO-PUBLISH  (commit data.json + manual-data.json to the repo)
+   ============================================================ */
+function ghCfg(){return STORE.read('gh',null);}
+function b64(str){return btoa(unescape(encodeURIComponent(str)));}
+function manualSnapshot(){const keys={};MANUAL_KEYS.forEach(k=>{const v=localStorage.getItem('fc_'+k);if(v!=null)keys[k]=v;});return {_publishedAt:new Date().toISOString(),keys};}
+function seedManual(repoObj){
+  if(!repoObj||!repoObj.keys)return;
+  if(localStorage.getItem('fc_dirty')==='1')return; // keep unpublished local edits
+  try{Object.keys(repoObj.keys).forEach(k=>{localStorage.setItem('fc_'+k,repoObj.keys[k]);});
+    localStorage.setItem('fc_manualSyncedAt',repoObj._publishedAt||'');}catch(e){}
+}
+async function ghPutFile(path,contentStr,message){
+  const g=ghCfg();const base='https://api.github.com/repos/'+g.owner+'/'+g.repo+'/contents/'+path;
+  const hdr={'Authorization':'token '+g.token,'Accept':'application/vnd.github+json'};
+  let sha;
+  try{const r=await fetch(base+'?ref='+encodeURIComponent(g.branch),{headers:hdr});if(r.ok){const j=await r.json();sha=j.sha;}}catch(e){}
+  const body={message:message,content:b64(contentStr),branch:g.branch};if(sha)body.sha=sha;
+  const res=await fetch(base,{method:'PUT',headers:hdr,body:JSON.stringify(body)});
+  if(!res.ok){let t='';try{t=(await res.json()).message||'';}catch(e){}throw new Error(res.status+' '+t);}
+  return true;
+}
+async function publishToGitHub(silent){
+  const g=ghCfg();if(!g){toast('Connect GitHub first (Backup / Share)','warn');return false;}
+  const btn=document.getElementById('pubBtn');if(btn){btn.disabled=true;btn.textContent='Publishing…';}
+  try{
+    await ghPutFile(g.path||'data.json',JSON.stringify(DB),'Update data.json via dashboard');
+    await ghPutFile(g.manualPath||'manual-data.json',JSON.stringify(manualSnapshot()),'Update manual data via dashboard');
+    try{localStorage.setItem('fc_dirty','0');localStorage.removeItem('fc_dirty');}catch(e){}
+    updatePublishState();
+    if(!silent)toast('Published — live for everyone with the link','ok');
+    return true;
+  }catch(e){toast('Publish failed: '+e.message+' (check token & repo)','warn');console.error(e);updatePublishState();return false;}
+}
+window.publishToGitHub=publishToGitHub;
+let _pubTimer=null;
+function scheduleAutoPublish(){if(!ghCfg())return;clearTimeout(_pubTimer);_pubTimer=setTimeout(()=>publishToGitHub(true),2500);}
+function updatePublishState(){
+  const el=document.getElementById('ghFoot');if(!el)return;
+  const g=ghCfg();
+  if(!g){el.innerHTML='';return;}
+  const dirty=localStorage.getItem('fc_dirty')==='1';
+  el.innerHTML=`<div style="margin-top:8px;padding-top:8px;border-top:1px solid var(--line-2);display:flex;align-items:center;justify-content:space-between;gap:6px">
+    <span style="font-size:10px;color:${dirty?'var(--accent-ink)':'var(--pos)'};font-weight:600">${dirty?'● changes not published':'✓ synced to GitHub'}</span>
+    <button class="btn sm ${dirty?'pri':''}" id="pubBtn" style="padding:4px 10px">Publish</button></div>`;
+  document.getElementById('pubBtn').onclick=()=>publishToGitHub(false);
+}
+function ghModal(){
+  const g=ghCfg()||{owner:'',repo:'',branch:'main',path:'data.json',manualPath:'manual-data.json',token:''};
+  const inp=(id,v,ph,type)=>`<input id="${id}" ${type?`type="${type}"`:''} value="${(v||'').replace(/"/g,'&quot;')}" placeholder="${ph||''}" style="width:100%;padding:8px 10px;border:1px solid var(--line);border-radius:7px;background:var(--panel-2);color:var(--ink)">`;
+  openModal('Connect GitHub (auto-publish)',`
+    <p style="font-size:12.5px;color:var(--ink-2);margin:0 0 12px">Publish updates straight to your GitHub Pages repo, so the live link always shows your latest sales + manual data. Your token is stored <b>only in this browser</b>.</p>
+    <div class="frow"><div class="field"><label>Owner (user or org)</label>${inp('gh_owner',g.owner,'e.g. novara')}</div><div class="field"><label>Repository</label>${inp('gh_repo',g.repo,'e.g. finance-control')}</div></div>
+    <div class="frow"><div class="field"><label>Branch</label>${inp('gh_branch',g.branch||'main','main')}</div><div class="field"><label>data.json path</label>${inp('gh_path',g.path||'data.json','data.json')}</div></div>
+    <div class="frow"><div class="field"><label>manual-data.json path</label>${inp('gh_mpath',g.manualPath||'manual-data.json','manual-data.json')}</div><div class="field"><label>Personal Access Token</label>${inp('gh_token',g.token,'ghp_… or github_pat_…','password')}</div></div>
+    <p style="font-size:11.5px;color:var(--neutral);margin:10px 0 0">Create a <b>fine-grained token</b> limited to this repo with <b>Contents: Read and write</b> (GitHub → Settings → Developer settings → Fine-grained tokens). ${ghCfg()?'<br><a href="#" onclick="ghDisconnect();return false;" style="color:var(--neg)">Disconnect GitHub</a>':''}</p>`,
+    ()=>{const cfg={owner:$('#gh_owner').value.trim(),repo:$('#gh_repo').value.trim(),branch:$('#gh_branch').value.trim()||'main',path:$('#gh_path').value.trim()||'data.json',manualPath:$('#gh_mpath').value.trim()||'manual-data.json',token:$('#gh_token').value.trim()};
+      if(!cfg.owner||!cfg.repo||!cfg.token){toast('Owner, repository and token are required','warn');return;}
+      STORE.write('gh',cfg);closeModal();renderFoot();toast('GitHub connected — publishing…','ok');publishToGitHub(false);},'Save & Connect');
+}
+window.ghModal=ghModal;
+window.ghDisconnect=function(){localStorage.removeItem('fc_gh');closeModal();renderFoot();toast('GitHub disconnected');};
+function handleUploadJson(file){
+  const rd=new FileReader();
+  rd.onload=()=>{try{const j=JSON.parse(rd.result);
+    if(!j||!j.rows||!j.customers)throw new Error('not a Finance Control data.json');
+    localStorage.setItem('fc_userData',JSON.stringify(j));
+    try{localStorage.setItem('fc_justUploaded','1');if(ghCfg())localStorage.setItem('fc_publishAfterBoot','1');}catch(e){}
+    toast('data.json loaded — refreshing…','ok');setTimeout(()=>location.reload(),700);
+  }catch(e){toast('Invalid data.json: '+e.message,'warn');}};
+  rd.readAsText(file);
+}
+window.handleUploadJson=handleUploadJson;
+
 function dlBlob(blob,name){const url=URL.createObjectURL(blob);const a=document.createElement('a');a.href=url;a.download=name;document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),1500);}
 function exportDataJson(){
   try{const blob=new Blob([JSON.stringify(DB)],{type:'application/json'});dlBlob(blob,'data.json');toast('data.json downloaded — replace it in your repo','ok');}
@@ -1486,12 +1565,26 @@ function exportAllExcel(){
 }
 window.exportDataJson=exportDataJson;window.exportLiveHTML=exportLiveHTML;window.exportAllExcel=exportAllExcel;
 function backupModal(){
+  const g=ghCfg();
+  const ghBlock=g
+    ? `<div style="background:var(--panel-2);border:1px solid var(--line);border-radius:9px;padding:12px 14px;margin-bottom:14px">
+         <div style="display:flex;align-items:center;justify-content:space-between;gap:8px"><b style="font-size:13px">GitHub: <span style="color:var(--pos)">connected</span></b><span style="font-size:11px;color:var(--neutral)">${g.owner}/${g.repo} · ${g.branch}</span></div>
+         <p style="font-size:11.5px;color:var(--ink-2);margin:8px 0 10px">Uploads and manual edits publish automatically. The live link updates for everyone.</p>
+         <div style="display:flex;gap:6px"><button class="btn pri sm" onclick="publishToGitHub(false)">Publish now</button><button class="btn sm" onclick="ghModal()">Settings</button><button class="btn sm" onclick="ghDisconnect()">Disconnect</button></div>
+       </div>`
+    : `<div style="background:var(--accent-soft);border:1px solid var(--accent);border-radius:9px;padding:12px 14px;margin-bottom:14px">
+         <b style="font-size:13px">Auto-update your GitHub repo</b>
+         <p style="font-size:11.5px;color:var(--ink-2);margin:8px 0 10px">Connect once, then every upload and manual entry publishes to your repo automatically — no manual data.json uploads, and anyone with the link sees the latest data.</p>
+         <button class="btn pri sm" onclick="ghModal()">Connect GitHub</button>
+       </div>`;
   openModal('Backup &amp; Share',`
-    <p style="font-size:13px;color:var(--ink-2);margin:0 0 4px">Your uploaded sales file and every manual entry are already saved <b>on this device</b> — no need to re-enter them. To keep a backup or share a live copy with someone, use these:</p>
+    ${ghBlock}
+    <p style="font-size:13px;color:var(--ink-2);margin:0 0 4px">Your uploaded sales file and every manual entry are saved <b>on this device</b>. Manual backup / share options:</p>
     <div style="display:flex;flex-direction:column;gap:10px;margin-top:12px">
-      <button class="btn pri" onclick="exportLiveHTML()" style="justify-content:flex-start;text-align:left;height:auto;padding:11px 14px">⬇ Live Dashboard (single HTML)<br><span style="font-weight:400;font-size:11.5px;color:#fff;opacity:.85">One self-contained file with your sales data + manual entries baked in. Send it to anyone — they just open it and see your live data (no server, no data.json).</span></button>
-      <button class="btn" onclick="exportDataJson()" style="justify-content:flex-start;text-align:left;height:auto;padding:11px 14px">⬇ data.json<br><span style="font-weight:400;font-size:11.5px;color:var(--ink-2)">Replace this file in your GitHub repo to update the hosted live preview for everyone.</span></button>
-      <button class="btn" onclick="exportAllExcel()" style="justify-content:flex-start;text-align:left;height:auto;padding:11px 14px">⬇ All Dashboard Data (Excel)<br><span style="font-weight:400;font-size:11.5px;color:var(--ink-2)">Backup workbook of every manual entry: banks, assets, liabilities, expenses, corporate tax, cash flow, upcoming.</span></button>
+      <button class="btn" onclick="document.getElementById('upJsonInput').click()" style="justify-content:flex-start;text-align:left;height:auto;padding:11px 14px">⭱ Upload data.json<br><span style="font-weight:400;font-size:11.5px;color:var(--ink-2)">Load a data.json backup as the live dataset${g?' (publishes to your repo)':''}.</span></button>
+      <button class="btn pri" onclick="exportLiveHTML()" style="justify-content:flex-start;text-align:left;height:auto;padding:11px 14px">⬇ Live Dashboard (single HTML)<br><span style="font-weight:400;font-size:11.5px;color:#fff;opacity:.85">One self-contained file with your sales data + manual entries baked in. Send it to anyone — they just open it (no server, no data.json).</span></button>
+      <button class="btn" onclick="exportDataJson()" style="justify-content:flex-start;text-align:left;height:auto;padding:11px 14px">⬇ data.json<br><span style="font-weight:400;font-size:11.5px;color:var(--ink-2)">Download the dataset to keep a backup or place in a repo manually.</span></button>
+      <button class="btn" onclick="exportAllExcel()" style="justify-content:flex-start;text-align:left;height:auto;padding:11px 14px">⬇ All Dashboard Data (Excel)<br><span style="font-weight:400;font-size:11.5px;color:var(--ink-2)">Backup workbook of every manual entry: banks, assets, liabilities, expenses, corporate tax, cash flow.</span></button>
       <button class="btn" onclick="exportCleaned()" style="justify-content:flex-start;text-align:left;height:auto;padding:11px 14px">⬇ Sales Data (Excel)<br><span style="font-weight:400;font-size:11.5px;color:var(--ink-2)">The cleaned sales dataset as an editable Excel — re-upload it later to update figures.</span></button>
     </div>`,null,'Close');
 }
@@ -1506,12 +1599,14 @@ function renderFoot(){
     </div>
     <button class="btn sm pri" id="upBtn" style="width:100%;margin-top:10px;justify-content:center">⭱ Upload Excel</button>
     <input type="file" id="upInput" accept=".xlsx,.xls" hidden>
+    <input type="file" id="upJsonInput" accept=".json,application/json" hidden>
     <button class="btn sm" id="bkBtn" style="width:100%;margin-top:6px;justify-content:center">⇩ Backup / Share</button>
-    ${usingUser?'<button class="btn sm" id="rstBtn" style="width:100%;margin-top:6px;justify-content:center">↺ Revert to sample</button>':''}`;
+    <div id="ghFoot"></div>`;
   $('#upBtn').onclick=()=>$('#upInput').click();
   $('#upInput').onchange=e=>{const f=e.target.files[0];if(f)handleUpload(f);};
-  $('#bkBtn').onclick=backupModal;$('#bkBtn').title='Backup or share your data';
-  if(usingUser){$('#rstBtn').onclick=()=>{try{localStorage.removeItem('fc_userData');}catch(e){}toast('Reverting to bundled sample…');setTimeout(()=>location.reload(),600);};}
+  $('#upJsonInput').onchange=e=>{const f=e.target.files[0];if(f)handleUploadJson(f);};
+  $('#bkBtn').onclick=backupModal;$('#bkBtn').title='Backup, share or connect GitHub';
+  updatePublishState();
 }
 
 /* ============================================================
@@ -1562,15 +1657,27 @@ $('#themeBtn').onclick=()=>{const h=document.documentElement;const dark=h.getAtt
 /* ---------- boot ---------- */
 (function boot(){
   const t=STORE.read('theme','light');document.documentElement.setAttribute('data-theme',t);
+  try{if(window.__REPO_MANUAL__)seedManual(window.__REPO_MANUAL__);}catch(e){}
   $('#foot').innerHTML='';renderFoot();
   initLogo();initFilters();navigate('exec');var bs=document.getElementById('bootScreen');if(bs)bs.style.display='none';
-  try{if(localStorage.getItem('fc_justUploaded')){localStorage.removeItem('fc_justUploaded');setTimeout(()=>toast('Data saved on this device. Use Backup / Share ▸ Live Dashboard to send a live copy.','ok'),900);}}catch(e){}
+  _booting=false;
+  try{if(localStorage.getItem('fc_justUploaded')){localStorage.removeItem('fc_justUploaded');
+    if(localStorage.getItem('fc_publishAfterBoot')&&ghCfg()){localStorage.removeItem('fc_publishAfterBoot');setTimeout(()=>publishToGitHub(false),1000);}
+    else setTimeout(()=>toast('Data saved on this device. Connect GitHub (Backup / Share) to auto-update the live link.','ok'),900);}}catch(e){}
 })();
 
 } /* end startApp */
 
-/* ---- data loader: embedded snapshot → uploaded data (localStorage) → bundled data.json ---- */
+/* ---- data loader: embedded snapshot → uploaded data → bundled data.json (+ manual-data.json) ---- */
 (function(){
+  function afterData(data){
+    window.__DATA=data;
+    fetch('./manual-data.json',{cache:'no-store'})
+      .then(function(r){return r.ok?r.json():null;})
+      .then(function(j){window.__REPO_MANUAL__=j;})
+      .catch(function(){})
+      .then(function(){try{startApp();}catch(e){bootError('Startup error: '+e.message);console.error(e);}});
+  }
   // Exported "Live Dashboard" files embed the data + manual entries directly.
   if(window.__EMBEDDED_DATA__){
     try{
@@ -1579,10 +1686,10 @@ $('#themeBtn').onclick=()=>{const h=document.documentElement;const dark=h.getAtt
     }catch(e){ console.error(e); }
   }
   var stored=null; try{ stored=localStorage.getItem('fc_userData'); }catch(e){}
-  if(stored){ try{ window.__DATA=JSON.parse(stored); startApp(); return; }catch(e){ try{localStorage.removeItem('fc_userData');}catch(_){}} }
+  if(stored){ try{ afterData(JSON.parse(stored)); return; }catch(e){ try{localStorage.removeItem('fc_userData');}catch(_){}} }
   fetch('./data.json',{cache:'no-store'})
     .then(function(r){ if(!r.ok) throw new Error('HTTP '+r.status); return r.json(); })
-    .then(function(d){ window.__DATA=d; try{ startApp(); }catch(e){ bootError('Startup error: '+e.message); console.error(e); } })
+    .then(function(d){ afterData(d); })
     .catch(function(e){ bootError('Could not load data.json ('+e.message+').'); });
   function bootError(msg){
     var s=document.getElementById('bootScreen');
