@@ -1436,13 +1436,66 @@ function handleUpload(file){
   const rd=new FileReader();
   rd.onload=()=>{try{
     const payload=parseWorkbook(rd.result,file.name);
-    localStorage.setItem('fc_userData',JSON.stringify(payload));
+    localStorage.setItem('fc_userData',JSON.stringify(payload));try{localStorage.setItem('fc_justUploaded','1');}catch(e){}
     toast('Loaded '+num(payload.meta.record_count)+' rows — refreshing…','ok');
     setTimeout(()=>location.reload(),700);
   }catch(e){toast('Upload failed: '+e.message,'warn');console.error(e);}};
   rd.onerror=()=>toast('Could not read the file','warn');
   rd.readAsArrayBuffer(file);
 }
+function dlBlob(blob,name){const url=URL.createObjectURL(blob);const a=document.createElement('a');a.href=url;a.download=name;document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),1500);}
+function exportDataJson(){
+  try{const blob=new Blob([JSON.stringify(DB)],{type:'application/json'});dlBlob(blob,'data.json');toast('data.json downloaded — replace it in your repo','ok');}
+  catch(e){toast('Export failed: '+e.message,'warn');}
+}
+function collectStore(){var s={};for(var i=0;i<localStorage.length;i++){var k=localStorage.key(i);if(k&&k.indexOf('fc_')===0&&k!=='fc_userData'){s[k]=localStorage.getItem(k);}}return s;}
+function exportLiveHTML(){
+  try{
+    var modal=document.getElementById('modal');var modalHtml=modal?modal.innerHTML:'';if(modal)modal.innerHTML='';closeModal();
+    var store=collectStore();
+    var esc=function(s){return s.replace(/<\//g,'<\\/');};
+    var inject='<script>window.__EMBEDDED_DATA__='+esc(JSON.stringify(DB))+';window.__EMBEDDED_STORE__='+esc(JSON.stringify(store))+';<\/script>';
+    var html='<!DOCTYPE html>\n'+document.documentElement.outerHTML;
+    html=html.replace('</head>',inject+'\n</head>');
+    if(modal)modal.innerHTML=modalHtml;
+    var blob=new Blob([html],{type:'text/html'});
+    dlBlob(blob,'finance-control-live.html');
+    toast('Live dashboard exported — send this one file, it opens with your data','ok');
+  }catch(e){toast('Export failed: '+e.message,'warn');console.error(e);}
+}
+function exportAllExcel(){
+  if(typeof XLSX==='undefined'){toast('Excel export needs an internet connection','warn');return;}
+  try{
+    const wb=XLSX.utils.book_new();
+    const add=(name,rows)=>{if(rows&&rows.length){XLSX.utils.book_append_sheet(wb,XLSX.utils.json_to_sheet(rows),name.slice(0,31));}};
+    add('Sales by Year',YEARS.map(y=>{const g=agg(rowsForYear(y));return {Year:y,Sales:g.rev,COGS:g.cost,'Gross Profit':g.pf,'Gross Margin %':+(g.gp*100).toFixed(2),Invoices:g.inv};}));
+    add('Banks',STORE.read('banks',[]).map(b=>({Account:b.name,Type:b.cat,'Balance (AED)':+b.balance||0,Note:b.note||''})));
+    add('Assets',STORE.read('assets',[]).map(a=>({Asset:a.name,Category:a.cat,Acquired:a.date,'Cost (AED)':+a.cost||0,Note:a.note||''})));
+    const _as=STORE.read('assets',[]);add('Asset Movements',STORE.read('assetMoves',[]).map(m=>({Asset:(_as.find(x=>x.id===m.assetId)||{}).name||m.assetId,Type:m.type,Date:m.date,'Amount (AED)':+m.amount||0,Note:m.note||''})));
+    add('Liabilities',STORE.read('liabilities',[]).map(l=>({Liability:l.name,Category:l.cat,Date:l.date,'Amount (AED)':+l.amount||0,Note:l.note||''})));
+    const _li=STORE.read('liabilities',[]);add('Liability Movements',STORE.read('liabMoves',[]).map(m=>({Liability:(_li.find(x=>x.id===m.liabId)||{}).name||m.liabId,Type:m.type,Date:m.date,'Amount (AED)':+m.amount||0,Note:m.note||''})));
+    add('Operating Expenses',STORE.read('expenses',[]).map(e=>({Date:e.date,Head:e.head,'Amount (AED)':+e.total||0})));
+    const ct=STORE.read('corpTax',{});add('Corporate Tax',Object.keys(ct).map(y=>({Year:+y,'Corporate Tax (AED)':+ct[y]||0})));
+    const rpLab={local_rec:'Local Receivable',oversea_rec:'Oversea Receivable',local_pay:'Local Payable',oversea_pay:'Oversea Payable'};
+    const rp=STORE.read('rpFig',{});add('Receivables & Payables',Object.keys(rp).map(k=>({Category:rpLab[k]||k,'Amount (AED)':+rp[k].a||0,Note:rp[k].n||''})));
+    add('Upcoming Expenses',STORE.read('upcoming',[]).map(u=>({Month:u.month,Date:u.date||'',Description:u.desc||'','Amount (AED)':+u.amount||0,Note:u.note||''})));
+    if(!wb.SheetNames.length)XLSX.utils.book_append_sheet(wb,XLSX.utils.aoa_to_sheet([['No manual data entered yet.']]),'Info');
+    XLSX.writeFile(wb,'finance-control-backup.xlsx');
+    toast('All dashboard data exported to Excel','ok');
+  }catch(e){toast('Export failed: '+e.message,'warn');console.error(e);}
+}
+window.exportDataJson=exportDataJson;window.exportLiveHTML=exportLiveHTML;window.exportAllExcel=exportAllExcel;
+function backupModal(){
+  openModal('Backup &amp; Share',`
+    <p style="font-size:13px;color:var(--ink-2);margin:0 0 4px">Your uploaded sales file and every manual entry are already saved <b>on this device</b> — no need to re-enter them. To keep a backup or share a live copy with someone, use these:</p>
+    <div style="display:flex;flex-direction:column;gap:10px;margin-top:12px">
+      <button class="btn pri" onclick="exportLiveHTML()" style="justify-content:flex-start;text-align:left;height:auto;padding:11px 14px">⬇ Live Dashboard (single HTML)<br><span style="font-weight:400;font-size:11.5px;color:#fff;opacity:.85">One self-contained file with your sales data + manual entries baked in. Send it to anyone — they just open it and see your live data (no server, no data.json).</span></button>
+      <button class="btn" onclick="exportDataJson()" style="justify-content:flex-start;text-align:left;height:auto;padding:11px 14px">⬇ data.json<br><span style="font-weight:400;font-size:11.5px;color:var(--ink-2)">Replace this file in your GitHub repo to update the hosted live preview for everyone.</span></button>
+      <button class="btn" onclick="exportAllExcel()" style="justify-content:flex-start;text-align:left;height:auto;padding:11px 14px">⬇ All Dashboard Data (Excel)<br><span style="font-weight:400;font-size:11.5px;color:var(--ink-2)">Backup workbook of every manual entry: banks, assets, liabilities, expenses, corporate tax, cash flow, upcoming.</span></button>
+      <button class="btn" onclick="exportCleaned()" style="justify-content:flex-start;text-align:left;height:auto;padding:11px 14px">⬇ Sales Data (Excel)<br><span style="font-weight:400;font-size:11.5px;color:var(--ink-2)">The cleaned sales dataset as an editable Excel — re-upload it later to update figures.</span></button>
+    </div>`,null,'Close');
+}
+window.backupModal=backupModal;
 function renderFoot(){
   const usingUser=!!(function(){try{return localStorage.getItem('fc_userData');}catch(e){return null;}})();
   $('#foot').innerHTML=`
@@ -1453,13 +1506,11 @@ function renderFoot(){
     </div>
     <button class="btn sm pri" id="upBtn" style="width:100%;margin-top:10px;justify-content:center">⭱ Upload Excel</button>
     <input type="file" id="upInput" accept=".xlsx,.xls" hidden>
-    <div style="display:flex;gap:6px;margin-top:6px">
-      <button class="btn sm" id="dlBtn" style="flex:1;justify-content:center">⭳ Data</button>
-      ${usingUser?'<button class="btn sm" id="rstBtn" style="flex:1;justify-content:center">↺ Sample</button>':''}
-    </div>`;
+    <button class="btn sm" id="bkBtn" style="width:100%;margin-top:6px;justify-content:center">⇩ Backup / Share</button>
+    ${usingUser?'<button class="btn sm" id="rstBtn" style="width:100%;margin-top:6px;justify-content:center">↺ Revert to sample</button>':''}`;
   $('#upBtn').onclick=()=>$('#upInput').click();
   $('#upInput').onchange=e=>{const f=e.target.files[0];if(f)handleUpload(f);};
-  $('#dlBtn').onclick=exportCleaned;$('#dlBtn').title='Download current data as Excel';
+  $('#bkBtn').onclick=backupModal;$('#bkBtn').title='Backup or share your data';
   if(usingUser){$('#rstBtn').onclick=()=>{try{localStorage.removeItem('fc_userData');}catch(e){}toast('Reverting to bundled sample…');setTimeout(()=>location.reload(),600);};}
 }
 
@@ -1513,12 +1564,20 @@ $('#themeBtn').onclick=()=>{const h=document.documentElement;const dark=h.getAtt
   const t=STORE.read('theme','light');document.documentElement.setAttribute('data-theme',t);
   $('#foot').innerHTML='';renderFoot();
   initLogo();initFilters();navigate('exec');var bs=document.getElementById('bootScreen');if(bs)bs.style.display='none';
+  try{if(localStorage.getItem('fc_justUploaded')){localStorage.removeItem('fc_justUploaded');setTimeout(()=>toast('Data saved on this device. Use Backup / Share ▸ Live Dashboard to send a live copy.','ok'),900);}}catch(e){}
 })();
 
 } /* end startApp */
 
-/* ---- data loader: uploaded data (localStorage) first, then bundled data.json ---- */
+/* ---- data loader: embedded snapshot → uploaded data (localStorage) → bundled data.json ---- */
 (function(){
+  // Exported "Live Dashboard" files embed the data + manual entries directly.
+  if(window.__EMBEDDED_DATA__){
+    try{
+      if(window.__EMBEDDED_STORE__){Object.keys(window.__EMBEDDED_STORE__).forEach(function(k){try{if(localStorage.getItem(k)==null)localStorage.setItem(k,window.__EMBEDDED_STORE__[k]);}catch(e){}});}
+      window.__DATA=window.__EMBEDDED_DATA__; startApp(); return;
+    }catch(e){ console.error(e); }
+  }
   var stored=null; try{ stored=localStorage.getItem('fc_userData'); }catch(e){}
   if(stored){ try{ window.__DATA=JSON.parse(stored); startApp(); return; }catch(e){ try{localStorage.removeItem('fc_userData');}catch(_){}} }
   fetch('./data.json',{cache:'no-store'})
