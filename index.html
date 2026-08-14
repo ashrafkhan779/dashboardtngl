@@ -248,6 +248,8 @@ body{background:
 .foot-meta .fr b.ell{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:190px}
 .opx th,.opx td{padding:6px 8px;white-space:nowrap}
 .opx th:first-child,.opx td:first-child{position:sticky;left:0;background:var(--panel);z-index:1}
+.opx td:first-child span{font-size:11px;line-height:1.25}
+.opx td:first-child [data-fill]{font-size:10px;padding:3px 6px}
 .opx input.opxcell{width:66px;text-align:right;padding:5px 6px;border:1px solid var(--line);border-radius:6px;background:var(--panel-2);color:var(--ink);font-family:'IBM Plex Mono';font-size:12px}
 .opx input.opxcell:focus{border-color:var(--accent);outline:none;background:var(--panel)}
 .opx tfoot td{position:sticky;bottom:0;background:var(--panel);border-top:2px solid var(--line)}
@@ -1077,6 +1079,11 @@ function renderPnl(){
   const curOpex=Object.values(curHeads).reduce((a,b)=>a+b,0),prevOpex=Object.values(prevHeads).reduce((a,b)=>a+b,0);
   const allHeads=[...new Set([...Object.keys(curHeads),...Object.keys(prevHeads)])];
   const curOp=cur.pf-curOpex,prevOp=prev.pf-prevOpex;
+  const opexTotalOf=y=>{const hs=opexBy(y);return Object.values(hs).reduce((a,b)=>a+b,0);};
+  const corpTax=STORE.read('corpTax',{});const corpTaxOf=y=>+corpTax[y]||0;
+  const curTax=corpTaxOf(ry),prevTax=corpTaxOf(py);
+  const curNet=curOp-curTax,prevNet=prevOp-prevTax;
+  const netProfitOf=y=>agg(rowsForYear(y)).pf-opexTotalOf(y)-corpTaxOf(y);
   function row(label,cv,pv,opts={}){const diff=cv-pv;const pc=pv?diff/pv:0;const good=opts.invert?diff<0:diff>0;const cls=diff===0?'flat':good?'up':'down';
     return `<tr class="${opts.bold?'pnl-bold':''}" style="${opts.bold?'font-weight:600':''}${opts.top?';border-top:2px solid var(--line)':''}">
       <td style="${opts.indent?'padding-left:30px':''}">${label}</td>
@@ -1102,13 +1109,28 @@ function renderPnl(){
        ${row('Operating Profit',curOp,prevOp,{bold:true,top:true})}
        ${row('Operating Margin %',cur.rev?curOp/cur.rev:0,prev.rev?prevOp/prev.rev:0,{pct:true,bold:true})}
        ${row('Net Profit (before tax)',curOp,prevOp,{bold:true,top:true})}
+       ${row('Corporate Tax',curTax,prevTax,{indent:true,invert:true})}
+       ${row('Net Profit (after tax)',curNet,prevNet,{bold:true,top:true})}
+       ${row('Net Margin %',cur.rev?curNet/cur.rev:0,prev.rev?prevNet/prev.rev:0,{pct:true,bold:true})}
      </tbody></table></div></div>
    <div class="grid g2" style="margin-top:16px">
-     <div class="card"><div class="head"><h3>Gross Profit Trend</h3></div><div class="body"><div class="chart-wrap"><canvas id="cPnlGp"></canvas></div></div></div>
+     <div class="card"><div class="head"><h3>Gross &amp; Net Profit Trend</h3></div><div class="body"><div class="chart-wrap"><canvas id="cPnlGp"></canvas></div></div></div>
      <div class="card"><div class="head"><h3>Revenue vs COGS by Year</h3></div><div class="body"><div class="chart-wrap"><canvas id="cPnlRev"></canvas></div></div></div>
-   </div>`;
-  mkChart('cPnlGp',{data:{labels:YEARS,datasets:[{type:'line',label:'Gross Profit',data:YEARS.map(y=>agg(rowsForYear(y)).pf),borderColor:PAL.pos(),backgroundColor:'transparent',tension:.3,pointRadius:3},{type:'line',label:'GP %',yAxisID:'y1',data:YEARS.map(y=>agg(rowsForYear(y)).gp*100),borderColor:PAL.gold(),borderDash:[5,4],tension:.3,pointRadius:2}]},options:{maintainAspectRatio:false,plugins:{legend:{position:'top',labels:{boxWidth:11}}},scales:{y:{...gridOpt(),ticks:{color:css('--ink-2'),callback:v=>(v/1e6).toFixed(1)+'M'}},y1:{position:'right',grid:{display:false},ticks:{color:css('--ink-2'),callback:v=>v.toFixed(0)+'%'}},x:gridOpt()}}});
+   </div>
+   <div class="card" style="margin-top:16px"><div class="head"><h3><span class="hic">${SVG.pnl}</span>Revenue · Gross Profit · Opex · Net Profit by Year</h3><span class="hint">full profit bridge across years</span></div><div class="body"><div class="chart-wrap"><canvas id="cPnlAll"></canvas></div></div></div>`;
+  mkChart('cPnlGp',{data:{labels:YEARS,datasets:[
+    {type:'line',label:'Gross Profit',data:YEARS.map(y=>agg(rowsForYear(y)).pf),borderColor:PAL.pos(),backgroundColor:'transparent',tension:.3,pointRadius:3},
+    {type:'line',label:'Net Profit',data:YEARS.map(y=>netProfitOf(y)),borderColor:PAL.accent(),backgroundColor:'transparent',tension:.3,pointRadius:3},
+    {type:'line',label:'GP %',yAxisID:'y1',data:YEARS.map(y=>agg(rowsForYear(y)).gp*100),borderColor:PAL.gold(),borderDash:[5,4],tension:.3,pointRadius:2},
+    {type:'line',label:'NP %',yAxisID:'y1',data:YEARS.map(y=>{const r=agg(rowsForYear(y)).rev;return r?netProfitOf(y)/r*100:0;}),borderColor:PAL.steel(),borderDash:[2,3],tension:.3,pointRadius:2}]},
+    options:{maintainAspectRatio:false,plugins:{legend:{position:'top',labels:{boxWidth:11}},tooltip:{callbacks:{label:c=>c.dataset.label+': '+(c.dataset.yAxisID==='y1'?c.raw.toFixed(1)+'%':AED2(c.raw))}}},scales:{y:{...gridOpt(),ticks:{color:css('--ink-2'),callback:v=>(v/1e6).toFixed(1)+'M'}},y1:{position:'right',grid:{display:false},ticks:{color:css('--ink-2'),callback:v=>v.toFixed(0)+'%'}},x:gridOpt()}}});
   mkChart('cPnlRev',{type:'bar',data:{labels:YEARS,datasets:[{label:'Revenue',data:YEARS.map(y=>agg(rowsForYear(y)).rev),backgroundColor:PAL.accent(),borderRadius:4},{label:'COGS',data:YEARS.map(y=>agg(rowsForYear(y)).cost),backgroundColor:css('--neg-soft'),borderColor:PAL.neg(),borderWidth:1,borderRadius:4}]},options:{maintainAspectRatio:false,layout:{padding:{top:20}},plugins:{legend:{position:'top',labels:{boxWidth:11}},datalabels:dl(),tooltip:{callbacks:{label:c=>c.dataset.label+': '+AED2(c.raw)}}},scales:{y:{...gridOpt(),ticks:{color:css('--ink-2'),callback:v=>(v/1e6).toFixed(1)+'M'}},x:gridOpt()}}});
+  mkChart('cPnlAll',{type:'bar',data:{labels:YEARS,datasets:[
+    {label:'Revenue',data:YEARS.map(y=>agg(rowsForYear(y)).rev),backgroundColor:PAL.accent(),borderRadius:4},
+    {label:'Gross Profit',data:YEARS.map(y=>agg(rowsForYear(y)).pf),backgroundColor:PAL.pos(),borderRadius:4},
+    {label:'Operating Expenses',data:YEARS.map(y=>opexTotalOf(y)),backgroundColor:css('--neg-soft'),borderColor:PAL.neg(),borderWidth:1,borderRadius:4},
+    {label:'Net Profit',data:YEARS.map(y=>netProfitOf(y)),backgroundColor:PAL.steel(),borderRadius:4}]},
+    options:{maintainAspectRatio:false,layout:{padding:{top:20}},plugins:{legend:{position:'top',labels:{boxWidth:11}},datalabels:{display:c=>Math.abs(c.dataset.data[c.dataIndex])>0,anchor:'end',align:'end',color:css('--ink-2'),font:{family:"'IBM Plex Mono'",size:8,weight:'600'},formatter:v=>v?kfmt(v):''},tooltip:{callbacks:{label:c=>c.dataset.label+': '+AED2(c.raw)}}},scales:{y:{...gridOpt(),ticks:{color:css('--ink-2'),callback:v=>kfmt(v)}},x:gridOpt()}}});
 }
 
 /* ============================================================
@@ -1136,7 +1158,7 @@ function renderExpenses(){
   const yearTotals={};yearOpts.forEach(y=>yearTotals[y]=yearTotalExp(y));
   const lbl='font-size:10px;text-transform:uppercase;letter-spacing:.05em;color:var(--neutral);font-weight:600;display:block;margin-bottom:6px';
   const kpiCards=yearOpts.map(y=>`<div class="kpi" ${y===year?'style="outline:2px solid var(--accent);outline-offset:-1px"':''}><div class="accent-bar"></div><div class="lab">Total ${y}</div><div class="val" style="font-size:19px" id="yk${y}">${AED2(yearTotals[y])}</div><span class="delta flat">${y===year?'selected year':'&nbsp;'}</span></div>`).join('');
-  let mt='<div class="tablescroll"><table class="opx"><thead><tr><th style="text-align:left;min-width:230px">Expense Head</th>'+MON.map(m=>`<th class="num">${m}</th>`).join('')+'<th class="num">Total</th></tr></thead><tbody>';
+  let mt='<div class="tablescroll"><table class="opx"><thead><tr><th style="text-align:left;min-width:190px">Expense Head</th>'+MON.map(m=>`<th class="num">${m}</th>`).join('')+'<th class="num">Total</th></tr></thead><tbody>';
   heads.forEach((hh,hi)=>{const row=byHM[hh]||Array(12).fill(0);
     mt+=`<tr><td style="text-align:left"><div style="display:flex;align-items:center;gap:8px;justify-content:space-between"><span>${hh}</span><button class="btn sm" data-fill="${hi}" title="Copy first entered value to all 12 months">⇊ fill</button></div></td>`+
       MON.map((_,m)=>`<td class="num"><input class="opxcell" type="number" step="0.01" data-h="${hi}" data-m="${m}" value="${row[m]?row[m]:''}" placeholder="0"></td>`).join('')+
@@ -1148,10 +1170,14 @@ function renderExpenses(){
      <div><label style="${lbl}">Year</label><select id="opexYear" style="padding:8px 12px;border:1px solid var(--line);border-radius:8px;background:var(--panel);color:var(--ink);font-weight:600">${yearOpts.map(y=>`<option ${y===year?'selected':''}>${y}</option>`).join('')}</select></div>
      <button class="btn" onclick="headForm()">+ Add / Manage Heads</button>
    </div>
-   <div class="kpigrid">${kpiCards}</div>
+   <div style="display:grid;grid-template-columns:repeat(${yearOpts.length},minmax(0,1fr));gap:10px;margin-bottom:16px">${kpiCards}</div>
    <div class="card" style="margin-bottom:16px"><div class="head"><h3><span class="hic">${SVG.receipt}</span>Monthly Expense Matrix — ${year}</h3><span class="hint">click a cell to type · ⇊ fill copies a value across all months</span></div><div class="body pad0">${mt}</div></div>
    <div class="card" style="margin-bottom:16px"><div class="head"><h3><span class="hic">${SVG.chart}</span>Total Expenses by Year</h3></div><div class="body"><div class="chart-wrap sm"><canvas id="cExpYear"></canvas></div></div></div>
-   <div class="card"><div class="head"><h3><span class="hic">${SVG.margin}</span>Expense Comparison by Head — ${year} vs ${year-1}</h3><span class="hint">which heads moved year over year</span></div><div class="body"><div class="chart-wrap" style="height:${Math.max(320,heads.length*26)}px"><canvas id="cExpCmp"></canvas></div></div></div>`;
+   <div class="card"><div class="head"><h3><span class="hic">${SVG.margin}</span>Expense Comparison by Head — ${year} vs ${year-1}</h3><span class="hint">which heads moved year over year</span></div><div class="body"><div class="chart-wrap" style="height:${Math.max(320,heads.length*26)}px"><canvas id="cExpCmp"></canvas></div></div></div>
+   <div class="card" style="margin-top:16px"><div class="head"><h3><span class="hic">${SVG.receipt}</span>Corporate Tax — by year</h3><span class="hint">just type the figure · flows into the P&amp;L · total <b id="corpTaxTotal">${AED2(yearOpts.reduce((a,y)=>a+(+(STORE.read('corpTax',{})[y])||0),0))}</b></span></div>
+     <div class="body pad0"><div class="tablescroll"><table><thead><tr><th>Year</th><th class="num" style="width:220px">Corporate Tax (AED)</th></tr></thead><tbody>
+       ${(()=>{const ct=STORE.read('corpTax',{});return yearOpts.map(y=>`<tr><td><b>${y}</b></td><td class="num"><input type="number" step="0.01" value="${+ct[y]||0}" onchange="setCorpTax(${y},this.value)" style="width:170px;text-align:right;padding:7px 10px;border:1px solid var(--line);border-radius:7px;background:var(--panel-2);color:var(--ink);font-family:'IBM Plex Mono'"></td></tr>`).join('');})()}
+     </tbody></table></div></div></div>`;
 
   const ys=$('#opexYear');ys.onchange=()=>{opexYear=+ys.value;renderExpenses();};
   const tbl=p.querySelector('table.opx');
@@ -1188,6 +1214,9 @@ window.headForm=function(){const extra=STORE.read('expHeadsExtra',[]);
    <div style="margin-top:14px"><div style="${'font-size:10px;text-transform:uppercase;letter-spacing:.05em;color:var(--neutral);font-weight:600;margin-bottom:6px'}">Custom heads</div><div id="headList">${extra.length?extra.map((h,i)=>`<div style="display:flex;justify-content:space-between;align-items:center;padding:7px 0;border-bottom:1px solid var(--line-2)"><span>${h}</span><button class="btn sm danger" onclick="rmHead(${i})">✕</button></div>`).join(''):'<span style="color:var(--neutral);font-size:12px">None yet — the 20 standard heads are always shown.</span>'}</div></div>`,null,'Close');
   window.addHead=()=>{const v=$('#newHead').value.trim();if(!v)return;const e=STORE.read('expHeadsExtra',[]);if(!e.includes(v)&&!OPEX_HEADS.includes(v))e.push(v);STORE.write('expHeadsExtra',e);closeModal();renderExpenses();toast('Head added','ok');};
   window.rmHead=(i)=>{const e=STORE.read('expHeadsExtra',[]);e.splice(i,1);STORE.write('expHeadsExtra',e);closeModal();renderExpenses();toast('Head removed');};};
+window.setCorpTax=function(year,val){const ct=STORE.read('corpTax',{});ct[year]=+val||0;STORE.write('corpTax',ct);
+  const el=document.getElementById('corpTaxTotal');if(el)el.textContent=AED2(Object.values(ct).reduce((a,b)=>a+(+b||0),0));
+  toast('Corporate tax saved · flows to P&L','ok');};
 
 /* ============================================================
    PAGE: BANKS  (accounts grouped by type, manual balances, subtotals)
@@ -1286,6 +1315,7 @@ function renderCashflow(){
      ${kpi('Total Payable',AED2(totalPay),`<span class="delta down">local + overseas</span>`,'receipt')}
      ${kpi('Net (Rec \u2212 Pay)',AED2(net),`<span class="delta ${net>=0?'up':'down'}">${net>=0?'\u25b2 net inflow':'\u25bc net outflow'}</span>`,'pnl')}
      ${kpi('Available Cash',AED2(cash),`<span class="delta flat">${banks.length} account(s)</span>`,'bank')}
+     ${kpi('Net + Available Cash',AED2(net+cash),`<span class="delta ${(net+cash)>=0?'up':'down'}">projected position</span>`,'money')}
      ${kpi('Upcoming Expenses',AED2(upcTotal),`<span class="delta flat">planned \u00b7 not in net</span>`,'margin')}
    </div>
    <div class="grid g2" style="margin-bottom:16px">
