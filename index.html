@@ -539,7 +539,8 @@ function renderExec(){
   const taxOf=y=>+_ct[y]||0;
   const scopeYears=[...new Set(rows.map(r=>r[I.yr]))];
   const opexScope=scopeYears.reduce((s,y)=>s+opexOf(y),0);
-  const netScope=a.pf-opexScope-scopeYears.reduce((s,y)=>s+taxOf(y),0);
+  const taxScope=scopeYears.reduce((s,y)=>s+taxOf(y),0);
+  const netScope=a.pf-opexScope-taxScope;
   const nmScope=a.rev?netScope/a.rev:0;
   const curNet=cur.pf-opexOf(ry)-taxOf(ry),prevNet=prev.pf-opexOf(py)-taxOf(py);
   const curNM=cur.rev?curNet/cur.rev:0,prevNM=prev.rev?prevNet/prev.rev:0;
@@ -634,9 +635,9 @@ function renderExec(){
   drawTrend();
 
   // profit bridge
-  mkChart('cBridge',{type:'bar',data:{labels:['Sales','COGS','Gross Profit'],datasets:[{data:[a.rev,-a.cost,a.pf],
-    backgroundColor:[PAL.accent(),css('--neg-soft'),PAL.pos()],borderColor:[PAL.accent(),PAL.neg(),PAL.pos()],borderWidth:1,borderRadius:5}]},
-    options:{maintainAspectRatio:false,layout:{padding:{top:22}},plugins:{legend:{display:false},datalabels:{display:true,anchor:'end',align:'end',clamp:true,color:css('--ink'),font:{family:"'IBM Plex Mono'",size:11,weight:'700'},formatter:v=>kfmt(Math.abs(v))},tooltip:{callbacks:{label:c=>AED2(Math.abs(c.raw))}}},
+  mkChart('cBridge',{type:'bar',data:{labels:['Sales','COGS','Gross Profit','OPEX','CT','NP'],datasets:[{data:[a.rev,-a.cost,a.pf,-opexScope,-taxScope,netScope],
+    backgroundColor:[PAL.accent(),css('--neg-soft'),PAL.pos(),css('--neg-soft'),PAL.gold(),PAL.steel()],borderColor:[PAL.accent(),PAL.neg(),PAL.pos(),PAL.neg(),PAL.gold(),PAL.steel()],borderWidth:1,borderRadius:5}]},
+    options:{maintainAspectRatio:false,layout:{padding:{top:22}},plugins:{legend:{display:false},datalabels:{display:true,anchor:'end',align:'end',clamp:true,color:css('--ink'),font:{family:"'IBM Plex Mono'",size:10,weight:'700'},formatter:v=>kfmt(Math.abs(v))},tooltip:{callbacks:{title:c=>({Sales:'Sales',COGS:'Cost of Goods Sold','Gross Profit':'Gross Profit',OPEX:'Operating Expenses',CT:'Corporate Tax',NP:'Net Profit'})[c[0].label]||c[0].label,label:c=>AED2(Math.abs(c.raw))}}},
       scales:{y:{...gridOpt(),ticks:{color:css('--ink-2'),callback:v=>(v/1e6).toFixed(1)+'M'}},x:gridOpt()}}});
 
   // top 20 customers (with Gross Profit value)
