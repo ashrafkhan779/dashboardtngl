@@ -1251,60 +1251,64 @@ const RP_CATS=[
   {k:'local_pay',lab:'Local Payable',side:'pay'},
   {k:'oversea_pay',lab:'Oversea Payable',side:'pay'}
 ];
+function rpFigData(){
+  let f=STORE.read('rpFig',null);
+  if(!f){const old=STORE.read('recpay',[]);f={local_rec:{a:0,n:''},oversea_rec:{a:0,n:''},local_pay:{a:0,n:''},oversea_pay:{a:0,n:''}};old.forEach(x=>{if(f[x.cat])f[x.cat].a+=(+x.amount||0);});STORE.write('rpFig',f);}
+  ['local_rec','oversea_rec','local_pay','oversea_pay'].forEach(k=>{if(!f[k])f[k]={a:0,n:''};});
+  return f;
+}
 function renderCashflow(){
   const p=$('#page-cashflow');const banks=STORE.read('banks',[]);
   const cash=banks.reduce((a,b)=>a+(+b.balance||0),0);
-  const rp=STORE.read('recpay',[]);const upc=STORE.read('upcoming',[]);
-  const sumCat=k=>rp.filter(x=>x.cat===k).reduce((a,x)=>a+(+x.amount||0),0);
-  const totalRec=sumCat('local_rec')+sumCat('oversea_rec');
-  const totalPay=sumCat('local_pay')+sumCat('oversea_pay');
+  const fig=rpFigData();const upc=STORE.read('upcoming',[]);
+  const gv=k=>+fig[k].a||0;
+  const totalRec=gv('local_rec')+gv('oversea_rec');
+  const totalPay=gv('local_pay')+gv('oversea_pay');
   const net=totalRec-totalPay;
   const upcTotal=upc.reduce((a,x)=>a+(+x.amount||0),0);
-  function rpSection(cat){
-    const rows=rp.filter(x=>x.cat===cat.k);const sub=rows.reduce((a,x)=>a+(+x.amount||0),0);
-    return `<div class="card" style="margin-bottom:14px"><div class="head"><h3><span class="hic">${cat.side==='rec'?SVG.money:SVG.receipt}</span>${cat.lab}</h3><span class="hint">subtotal <b style="color:${cat.side==='rec'?'var(--pos)':'var(--neg)'}">${AED2(sub)}</b> · <span onclick="rpForm('${cat.k}')" style="color:var(--accent-ink);cursor:pointer;font-weight:600">+ Add</span></span></div>
-      <div class="body pad0">${rows.length?`<div class="tablescroll"><table><thead><tr><th>Party</th><th>Due date</th><th>Note</th><th class="num">Amount</th><th></th></tr></thead><tbody>
-        ${rows.slice().sort((a,b)=>(a.date||'')<(b.date||'')?1:-1).map(x=>`<tr><td><b>${x.party||'—'}</b></td><td>${x.date||'—'}</td><td>${x.note||''}</td><td class="num">${AED2(+x.amount||0)}</td><td class="num"><button class="btn sm danger" onclick="delRp('${x.id}')">✕</button></td></tr>`).join('')}
-        <tr style="font-weight:600;border-top:2px solid var(--line)"><td colspan="3">${cat.lab} total</td><td class="num">${AED2(sub)}</td><td></td></tr>
-      </tbody></table></div>`:`<div class="empty" style="padding:26px"><p>No ${cat.lab.toLowerCase()} entries yet.</p><button class="btn pri" onclick="rpForm('${cat.k}')">+ Add ${cat.lab}</button></div>`}</div></div>`;
-  }
+  const rpRow=cat=>`<tr>
+    <td><b>${cat.lab}</b></td>
+    <td class="num"><input type="number" step="0.01" value="${gv(cat.k)}" onchange="setRpFig('${cat.k}',this.value)" style="width:160px;text-align:right;padding:7px 10px;border:1px solid var(--line);border-radius:7px;background:var(--panel-2);color:var(--ink);font-family:'IBM Plex Mono'"></td>
+    <td><input value="${(fig[cat.k].n||'').replace(/"/g,'&quot;')}" onchange="setRpFigNote('${cat.k}',this.value)" placeholder="note (optional)" style="width:100%;padding:7px 10px;border:1px solid var(--line);border-radius:7px;background:var(--panel-2);color:var(--ink)"></td></tr>`;
+  const rpCard=(title,cats,total,color)=>`<div class="card"><div class="head"><h3><span class="hic">${color==='var(--pos)'?SVG.money:SVG.receipt}</span>${title}</h3><span class="hint">total <b style="color:${color}">${AED2(total)}</b></span></div>
+    <div class="body pad0"><div class="tablescroll"><table><thead><tr><th>Category</th><th class="num" style="width:190px">Amount (AED)</th><th>Note</th></tr></thead><tbody>
+      ${cats.map(rpRow).join('')}
+      <tr style="font-weight:700;border-top:2px solid var(--line)"><td>${title==='Receivables'?'Total Receivable':'Total Payable'}</td><td class="num">${AED2(total)}</td><td></td></tr>
+    </tbody></table></div></div></div>`;
   // upcoming grouped by month
   const byMonth={};upc.forEach(u=>{(byMonth[u.month]=byMonth[u.month]||[]).push(u);});
   const months=Object.keys(byMonth).sort();
-  const monthLabel=m=>{if(!m)return '—';const [y,mo]=m.split('-');return (MON[+mo-1]||mo)+' '+y;};
+  const monthLabel=m=>{if(!m)return '\u2014';const [y,mo]=m.split('-');return (MON[+mo-1]||mo)+' '+y;};
   p.innerHTML=`
-   <div class="pagehead"><h2>Cash Flow Control</h2><p>Track receivables and payables (local &amp; overseas), and plan upcoming expenses month by month. Available cash is pulled from Bank Management.</p></div>
+   <div class="pagehead"><h2>Cash Flow Control</h2><p>Update receivable and payable figures directly (local &amp; overseas) \u2014 just change the number when it moves. Available cash is pulled from Bank Management.</p></div>
    <div class="kpigrid">
      ${kpi('Total Receivable',AED2(totalRec),`<span class="delta up">local + overseas</span>`,'money')}
      ${kpi('Total Payable',AED2(totalPay),`<span class="delta down">local + overseas</span>`,'receipt')}
-     ${kpi('Net (Rec − Pay)',AED2(net),`<span class="delta ${net>=0?'up':'down'}">${net>=0?'▲ net inflow':'▼ net outflow'}</span>`,'pnl')}
+     ${kpi('Net (Rec \u2212 Pay)',AED2(net),`<span class="delta ${net>=0?'up':'down'}">${net>=0?'\u25b2 net inflow':'\u25bc net outflow'}</span>`,'pnl')}
      ${kpi('Available Cash',AED2(cash),`<span class="delta flat">${banks.length} account(s)</span>`,'bank')}
-     ${kpi('Upcoming Expenses',AED2(upcTotal),`<span class="delta flat">planned · not in net</span>`,'margin')}
+     ${kpi('Upcoming Expenses',AED2(upcTotal),`<span class="delta flat">planned \u00b7 not in net</span>`,'margin')}
    </div>
-   <div class="grid g2">
-     <div>
-       <div style="font-family:'Sora';font-weight:600;font-size:14px;margin:2px 0 10px;color:var(--pos)">Receivables — ${AED2(totalRec)}</div>
-       ${rpSection(RP_CATS[0])}${rpSection(RP_CATS[1])}
-     </div>
-     <div>
-       <div style="font-family:'Sora';font-weight:600;font-size:14px;margin:2px 0 10px;color:var(--neg)">Payables — ${AED2(totalPay)}</div>
-       ${rpSection(RP_CATS[2])}${rpSection(RP_CATS[3])}
-     </div>
+   <div class="grid g2" style="margin-bottom:16px">
+     ${rpCard('Receivables',[RP_CATS[0],RP_CATS[1]],totalRec,'var(--pos)')}
+     ${rpCard('Payables',[RP_CATS[2],RP_CATS[3]],totalPay,'var(--neg)')}
    </div>
-   <div class="card" style="margin-top:6px"><div class="head"><h3><span class="hic">${SVG.receipt}</span>Upcoming Expenses — month wise</h3><span class="hint">planned total <b>${AED2(upcTotal)}</b> · not included in Net</span></div>
+   <div class="card" style="margin-bottom:16px"><div class="head"><h3><span class="hic">${SVG.receipt}</span>Upcoming Expenses \u2014 month wise</h3><span class="hint">planned total <b>${AED2(upcTotal)}</b> \u00b7 not included in Net</span></div>
      <div class="body pad0">
        <div style="padding:12px 16px"><button class="btn pri" onclick="upcForm()">+ Add Upcoming Expense</button></div>
        ${months.length?months.map(m=>{const rows=byMonth[m];const sub=rows.reduce((a,x)=>a+(+x.amount||0),0);
          return `<div style="padding:0 16px 6px"><div style="display:flex;justify-content:space-between;align-items:center;padding:8px 0;border-bottom:1px solid var(--line)"><b style="font-family:'Sora'">${monthLabel(m)}</b><span class="mono" style="color:var(--accent-ink);font-weight:600">${AED2(sub)}</span></div>
-         <table><tbody>${rows.slice().sort((a,b)=>(a.date||'')<(b.date||'')?1:-1).map(x=>`<tr><td>${x.desc||'—'}</td><td style="color:var(--ink-2)">${x.date||''}</td><td class="num">${AED2(+x.amount||0)}</td><td class="num" style="width:40px"><button class="btn sm danger" onclick="delUpc('${x.id}')" title="Mark done / delete">✓</button></td></tr>`).join('')}</tbody></table></div>`;}).join(''):`<div class="empty" style="padding:26px"><p>No upcoming expenses planned.</p></div>`}
-     </div></div>`;
+         <table><tbody>${rows.slice().sort((a,b)=>(a.date||'')<(b.date||'')?1:-1).map(x=>`<tr><td>${x.desc||'\u2014'}</td><td style="color:var(--ink-2)">${x.date||''}</td><td class="num">${AED2(+x.amount||0)}</td><td class="num" style="width:40px"><button class="btn sm danger" onclick="delUpc('${x.id}')" title="Mark done / delete">\u2713</button></td></tr>`).join('')}</tbody></table></div>`;}).join(''):`<div class="empty" style="padding:26px"><p>No upcoming expenses planned.</p></div>`}
+     </div></div>
+   <div class="card"><div class="head"><h3><span class="hic">${SVG.chart}</span>Upcoming Expenses by Month</h3><span class="hint">planned outflow timeline</span></div><div class="body">${months.length?'<div class="chart-wrap"><canvas id="cUpcoming"></canvas></div>':'<div class="empty" style="padding:26px"><p>Add upcoming expenses to see the month-wise chart.</p></div>'}</div></div>`;
+
+  if(months.length){
+    mkChart('cUpcoming',{type:'bar',data:{labels:months.map(monthLabel),datasets:[{label:'Planned expense',data:months.map(m=>byMonth[m].reduce((a,x)=>a+(+x.amount||0),0)),backgroundColor:PAL.accent(),borderRadius:5}]},
+      options:{maintainAspectRatio:false,layout:{padding:{top:20}},plugins:{legend:{display:false},datalabels:{display:c=>c.dataset.data[c.dataIndex]>0,anchor:'end',align:'end',color:css('--ink-2'),font:{family:"'IBM Plex Mono'",size:10,weight:'700'},formatter:v=>v?kfmt(v):''},tooltip:{callbacks:{label:c=>AED2(c.raw)}}},
+        scales:{y:{...gridOpt(),ticks:{color:css('--ink-2'),callback:v=>kfmt(v)}},x:gridOpt()}}});
+  }
 }
-window.rpForm=function(preCat){openModal('Add Receivable / Payable',`
-  <div class="frow"><div class="field"><label>Type</label><select id="rp_cat">${RP_CATS.map(c=>`<option value="${c.k}" ${c.k===preCat?'selected':''}>${c.lab}</option>`).join('')}</select></div><div class="field"><label>Due date</label><input type="date" id="rp_date" value="${new Date().toISOString().slice(0,10)}"></div></div>
-  <div class="frow"><div class="field full"><label>Party (customer / supplier)</label><input id="rp_party"></div></div>
-  <div class="frow"><div class="field"><label>Amount (AED)</label><input type="number" id="rp_amt" step="0.01"></div><div class="field"><label>Note</label><input id="rp_note"></div></div>`,
-  ()=>{const a=STORE.read('recpay',[]);a.push({id:'rp'+Date.now(),cat:$('#rp_cat').value,party:$('#rp_party').value,date:$('#rp_date').value,amount:+$('#rp_amt').value||0,note:$('#rp_note').value});STORE.write('recpay',a);closeModal();renderCashflow();toast('Entry added','ok');});};
-window.delRp=function(id){confirmAction('Delete this entry?',()=>{STORE.write('recpay',STORE.read('recpay',[]).filter(x=>x.id!==id));renderCashflow();toast('Deleted');});};
+window.setRpFig=function(cat,val){const f=STORE.read('rpFig',{});if(!f[cat])f[cat]={a:0,n:''};f[cat].a=+val||0;STORE.write('rpFig',f);renderCashflow();};
+window.setRpFigNote=function(cat,val){const f=STORE.read('rpFig',{});if(!f[cat])f[cat]={a:0,n:''};f[cat].n=val;STORE.write('rpFig',f);};
 window.upcForm=function(){const now=new Date();const ym=now.toISOString().slice(0,7);openModal('Add Upcoming Expense',`
   <div class="frow"><div class="field"><label>Month</label><input type="month" id="u_month" value="${ym}"></div><div class="field"><label>Expected date (optional)</label><input type="date" id="u_date"></div></div>
   <div class="frow"><div class="field full"><label>Description</label><input id="u_desc" placeholder="e.g. Trade licence renewal"></div></div>
