@@ -85,7 +85,7 @@ select,input{font-family:inherit;font-size:13px}
 /* ---------- KPI cards ---------- */
 .kpigrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:14px;margin-bottom:20px}
 .kpi{background:var(--panel);border:1px solid var(--line);border-radius:var(--radius);padding:16px 17px;box-shadow:var(--shadow);position:relative;overflow:hidden}
-.kpi .lab{font-size:11px;text-transform:uppercase;letter-spacing:.05em;color:var(--ink-2);font-weight:600;display:flex;align-items:center;gap:6px}
+.kpi .lab{font-size:11px;text-transform:uppercase;letter-spacing:.05em;color:var(--ink-2);font-weight:600;display:flex;align-items:center;gap:6px;padding-right:40px;min-height:16px}
 .kpi .val{font-family:'Sora';font-weight:600;font-size:26px;margin-top:8px;letter-spacing:-.02em;font-variant-numeric:tabular-nums}
 .kpi .delta{margin-top:7px;font-size:12px;font-weight:600;display:inline-flex;align-items:center;gap:5px;font-family:'IBM Plex Mono'}
 .kpi .delta .sub{color:var(--ink-2);font-weight:400}
@@ -910,52 +910,66 @@ function renderOnboard(){
 /* ============================================================
    PAGE: DORMANT CUSTOMERS
    ============================================================ */
-let dormSel=0;
+let dormSel=0,dormSort={k:'days',dir:-1},dormQ='';
 function renderDormant(){
   const p=$('#page-dormant');
   const info={};
   for(const r of ROWS){const c=r[I.c];const o=info[c]||(info[c]={last:'',rev:0,pf:0,inv:new Set()});if(r[I.date]>o.last)o.last=r[I.date];o.rev+=r[I.rev];o.pf+=r[I.profit];o.inv.add(r[I.inv]);}
   const ref=new Date(DB.meta.date_max+'T00:00:00Z');
   const daysOf=a=>Math.round((ref-new Date(a+'T00:00:00Z'))/86400000);
-  const custs=Object.entries(info).map(([c,o])=>({c:+c,last:o.last,days:daysOf(o.last),rev:o.rev,pf:o.pf,gp:o.rev?o.pf/o.rev:0,inv:o.inv.size}));
+  const custs=Object.entries(info).map(([c,o])=>({c:+c,name:CUST[+c],last:o.last,days:daysOf(o.last),rev:o.rev,pf:o.pf,gp:o.rev?o.pf/o.rev:0,inv:o.inv.size}));
   const totalRev=agg(ROWS).rev;
   const TH=[{k:'1 month',d:30},{k:'2 months',d:60},{k:'1 quarter',d:90},{k:'half year',d:180},{k:'1 year',d:365}];
   const lbl='font-size:10px;text-transform:uppercase;letter-spacing:.05em;color:var(--neutral);font-weight:600;display:block;margin-bottom:6px';
   p.innerHTML=`
    <div class="pagehead"><h2>Dormant Customers</h2><p>Customers with <b>no invoice</b> within each window, measured from the latest transaction in your data (<b>${DB.meta.date_max}</b>). Pick a window to list who has gone quiet.</p></div>
-   <div style="margin-bottom:16px"><label style="${lbl}">No business in the last…</label><div class="seg" id="dormSeg">${TH.map((t,i)=>`<button data-i="${i}">${t.k}</button>`).join('')}</div></div>
+   <div style="display:flex;gap:20px;flex-wrap:wrap;align-items:flex-end;margin-bottom:16px">
+     <div><label style="${lbl}">No business in the last…</label><div class="seg" id="dormSeg">${TH.map((t,i)=>`<button data-i="${i}">${t.k}</button>`).join('')}</div></div>
+     <div style="flex:1;min-width:220px"><label style="${lbl}">Search customer</label><input id="dormSearch" placeholder="Type a customer name…" value="${dormQ.replace(/"/g,'&quot;')}" style="width:100%;padding:8px 11px;border:1px solid var(--line);border-radius:8px;background:var(--panel);color:var(--ink)"></div>
+   </div>
    <div class="kpigrid" id="dormKpis"></div>
    <div class="card" style="margin-bottom:16px"><div class="head"><h3><span class="hic">${SVG.chart}</span>Dormancy Summary</h3><span class="hint">counts are cumulative — longer windows are subsets of shorter ones</span></div><div class="body pad0"><div id="dormSummary"></div></div></div>
    <div class="card"><div class="head"><h3 id="dormTitle"><span class="hic">${SVG.user}</span>Dormant list</h3><span class="hint" id="dormSub"></span></div><div class="body pad0"><div class="tablescroll" id="dormTbl"></div></div></div>`;
 
-  // summary (static): each window's count + revenue at risk
-  let sh='<table><thead><tr><th>No business in the last…</th><th class="num">Customers</th><th class="num">% of base</th><th class="num">Lifetime Sales</th><th class="num">Rev at risk</th></tr></thead><tbody>';
-  TH.forEach((t,i)=>{const g=custs.filter(x=>x.days>=t.d);const rev=g.reduce((a,x)=>a+x.rev,0);
-    sh+=`<tr class="clickable" onclick="setDorm(${i})"><td><b>${t.k}</b> <span style="color:var(--neutral);font-size:11px">(≥ ${t.d} days)</span></td><td class="num">${g.length}</td><td class="num">${pct(custs.length?g.length/custs.length:0)}</td><td class="num">${AED2(rev)}</td><td class="num">${pct(totalRev?rev/totalRev:0)}</td></tr>`;});
-  sh+='</tbody></table>';$('#dormSummary').innerHTML=sh;
-
+  const q=()=>dormQ.trim().toLowerCase();
+  // summary respects the search box too
+  function drawSummary(){
+    let sh='<table><thead><tr><th>No business in the last…</th><th class="num">Customers</th><th class="num">% of base</th><th class="num">Lifetime Sales</th><th class="num">Rev at risk</th></tr></thead><tbody>';
+    TH.forEach((t,i)=>{const g=custs.filter(x=>x.days>=t.d&&(!q()||x.name.toLowerCase().includes(q())));const rev=g.reduce((a,x)=>a+x.rev,0);
+      sh+=`<tr class="clickable" onclick="setDorm(${i})"><td><b>${t.k}</b> <span style="color:var(--neutral);font-size:11px">(≥ ${t.d} days)</span></td><td class="num">${g.length}</td><td class="num">${pct(custs.length?g.length/custs.length:0)}</td><td class="num">${AED2(rev)}</td><td class="num">${pct(totalRev?rev/totalRev:0)}</td></tr>`;});
+    sh+='</tbody></table>';$('#dormSummary').innerHTML=sh;
+  }
   window.setDorm=function(i){dormSel=i;$('#dormSeg').querySelectorAll('button').forEach(b=>b.classList.toggle('on',+b.dataset.i===i));draw();};
+  window.dormSortBy=function(k){if(dormSort.k===k)dormSort.dir*=-1;else{dormSort.k=k;dormSort.dir=(k==='name'||k==='last')?1:-1;}draw();};
   $('#dormSeg').querySelectorAll('button').forEach(b=>b.onclick=()=>setDorm(+b.dataset.i));
+  const si=$('#dormSearch');si.oninput=()=>{dormQ=si.value;draw();drawSummary();};
 
+  const COLS=[['name','Customer',''],['last','Last Order',''],['days','Days Since','num'],['days','Months','num2'],['rev','Lifetime Sales','num'],['gp','GP%','num'],['inv','Inv','num']];
   function draw(){
-    const t=TH[dormSel];const list=custs.filter(x=>x.days>=t.d).sort((a,b)=>b.days-a.days);
-    const active=custs.filter(x=>x.days<30).length;
+    const t=TH[dormSel];
+    const activeThresh=t.d;
+    let list=custs.filter(x=>x.days>=t.d);
+    if(q())list=list.filter(x=>x.name.toLowerCase().includes(q()));
+    const k=dormSort.k,dir=dormSort.dir;
+    list=list.slice().sort((a,b)=>{let av=a[k],bv=b[k];if(k==='name'||k==='last'){return dir*String(av).localeCompare(String(bv));}return dir*(av-bv);});
+    const active=custs.filter(x=>x.days<activeThresh&&(!q()||x.name.toLowerCase().includes(q()))).length;
     const rev=list.reduce((a,x)=>a+x.rev,0);
     $('#dormKpis').innerHTML=[
       kpi('Reference Date',DB.meta.date_max,`<span class="delta flat">latest invoice</span>`,'invoice'),
       kpi('Total Customers',num(custs.length),`<span class="delta flat">ever transacted</span>`,'user'),
-      kpi('Active (last 30d)',num(active),`<span class="delta ${active?'up':'flat'}">still buying</span>`,'user'),
+      kpi('Active within '+t.k,num(active),`<span class="delta ${active?'up':'flat'}">ordered ≤ ${activeThresh}d</span>`,'user'),
       kpi('Dormant · '+t.k,num(list.length),`<span class="delta ${list.length?'down':'up'}">no order ${t.d}d+</span>`,'user'),
       kpi('Revenue at Risk',AED2(rev),`<span class="delta flat">${pct(totalRev?rev/totalRev:0)} of lifetime</span>`,'money')
     ].join('');
     $('#dormTitle').innerHTML=`<span class="hic">${SVG.user}</span>No business in the last ${t.k}`;
-    $('#dormSub').textContent=list.length+' customer'+(list.length===1?'':'s');
-    let h='<table><thead><tr><th>Customer</th><th>Last Order</th><th class="num">Days Since</th><th class="num">Months</th><th class="num">Lifetime Sales</th><th class="num">GP%</th><th class="num">Inv</th></tr></thead><tbody>';
-    list.forEach(x=>{h+=`<tr class="clickable" onclick="gotoCustomer(${x.c})"><td><b>${CUST[x.c]}</b></td><td>${x.last}</td><td class="num"><span class="pill ${x.days>=365?'neg':x.days>=180?'neu':''}">${num(x.days)}</span></td><td class="num">${(x.days/30).toFixed(1)}</td><td class="num">${AED2(x.rev)}</td><td class="num">${pct(x.gp)}</td><td class="num">${x.inv}</td></tr>`;});
-    if(!list.length)h+='<tr><td colspan="7" style="text-align:center;color:var(--neutral);padding:24px">No customers dormant this long — great retention.</td></tr>';
+    $('#dormSub').textContent=list.length+' customer'+(list.length===1?'':'s')+(q()?' matching “'+dormQ.trim()+'”':'');
+    const arrow=c=>dormSort.k===c?(dormSort.dir<0?' ▼':' ▲'):'';
+    let h='<table><thead><tr>'+COLS.map((c,idx)=>`<th class="${c[2]==='num'||c[2]==='num2'?'num':''}" onclick="dormSortBy('${c[0]}')" style="cursor:pointer;user-select:none">${c[1]}${arrow(c[0])}</th>`).join('')+'</tr></thead><tbody>';
+    list.forEach(x=>{h+=`<tr class="clickable" onclick="gotoCustomer(${x.c})"><td><b>${x.name}</b></td><td>${x.last}</td><td class="num"><span class="pill ${x.days>=365?'neg':x.days>=180?'neu':''}">${num(x.days)}</span></td><td class="num">${(x.days/30).toFixed(1)}</td><td class="num">${AED2(x.rev)}</td><td class="num">${pct(x.gp)}</td><td class="num">${x.inv}</td></tr>`;});
+    if(!list.length)h+='<tr><td colspan="7" style="text-align:center;color:var(--neutral);padding:24px">No customers match — try a different window or search.</td></tr>';
     h+='</tbody></table>';$('#dormTbl').innerHTML=h;
   }
-  setDorm(dormSel);
+  drawSummary();setDorm(dormSel);
 }
 
 /* ============================================================
@@ -1194,37 +1208,74 @@ window.bankForm=function(){openModal('Add Account / Category',`
    setTimeout(()=>{const s=$('#b_cat');if(s)s.onchange=()=>{$('#b_newcatRow').style.display=s.value==='__new'?'grid':'none';};},20);};
 
 /* ============================================================
-   PAGE: CASH FLOW
+   PAGE: CASH FLOW  (receivables/payables + month-wise upcoming expenses)
    ============================================================ */
+const RP_CATS=[
+  {k:'local_rec',lab:'Local Receivable',side:'rec'},
+  {k:'oversea_rec',lab:'Oversea Receivable',side:'rec'},
+  {k:'local_pay',lab:'Local Payable',side:'pay'},
+  {k:'oversea_pay',lab:'Oversea Payable',side:'pay'}
+];
 function renderCashflow(){
-  const p=$('#page-cashflow');const banks=STORE.read('banks',[]);const exp=STORE.read('expenses',[]);
+  const p=$('#page-cashflow');const banks=STORE.read('banks',[]);
   const cash=banks.reduce((a,b)=>a+(+b.balance||0),0);
-  const flows=STORE.read('cashflows',[]);
-  const inflow=flows.filter(f=>f.dir==='in').reduce((a,f)=>a+(+f.actual||f.expected||0),0);
-  const outflow=flows.filter(f=>f.dir==='out').reduce((a,f)=>a+(+f.actual||f.expected||0),0);
-  // avg monthly opex from expense ledger
-  const months=new Set(exp.map(e=>e.date.slice(0,7)));const avgOpex=months.size?exp.reduce((a,e)=>a+(+e.total||0),0)/months.size:0;
-  const net=inflow-outflow;const runway=avgOpex>0?(cash/avgOpex):null;
+  const rp=STORE.read('recpay',[]);const upc=STORE.read('upcoming',[]);
+  const sumCat=k=>rp.filter(x=>x.cat===k).reduce((a,x)=>a+(+x.amount||0),0);
+  const totalRec=sumCat('local_rec')+sumCat('oversea_rec');
+  const totalPay=sumCat('local_pay')+sumCat('oversea_pay');
+  const net=totalRec-totalPay;
+  const upcTotal=upc.reduce((a,x)=>a+(+x.amount||0),0);
+  function rpSection(cat){
+    const rows=rp.filter(x=>x.cat===cat.k);const sub=rows.reduce((a,x)=>a+(+x.amount||0),0);
+    return `<div class="card" style="margin-bottom:14px"><div class="head"><h3><span class="hic">${cat.side==='rec'?SVG.money:SVG.receipt}</span>${cat.lab}</h3><span class="hint">subtotal <b style="color:${cat.side==='rec'?'var(--pos)':'var(--neg)'}">${AED2(sub)}</b> · <span onclick="rpForm('${cat.k}')" style="color:var(--accent-ink);cursor:pointer;font-weight:600">+ Add</span></span></div>
+      <div class="body pad0">${rows.length?`<div class="tablescroll"><table><thead><tr><th>Party</th><th>Due date</th><th>Note</th><th class="num">Amount</th><th></th></tr></thead><tbody>
+        ${rows.slice().sort((a,b)=>(a.date||'')<(b.date||'')?1:-1).map(x=>`<tr><td><b>${x.party||'—'}</b></td><td>${x.date||'—'}</td><td>${x.note||''}</td><td class="num">${AED2(+x.amount||0)}</td><td class="num"><button class="btn sm danger" onclick="delRp('${x.id}')">✕</button></td></tr>`).join('')}
+        <tr style="font-weight:600;border-top:2px solid var(--line)"><td colspan="3">${cat.lab} total</td><td class="num">${AED2(sub)}</td><td></td></tr>
+      </tbody></table></div>`:`<div class="empty" style="padding:26px"><p>No ${cat.lab.toLowerCase()} entries yet.</p><button class="btn pri" onclick="rpForm('${cat.k}')">+ Add ${cat.lab}</button></div>`}</div></div>`;
+  }
+  // upcoming grouped by month
+  const byMonth={};upc.forEach(u=>{(byMonth[u.month]=byMonth[u.month]||[]).push(u);});
+  const months=Object.keys(byMonth).sort();
+  const monthLabel=m=>{if(!m)return '—';const [y,mo]=m.split('-');return (MON[+mo-1]||mo)+' '+y;};
   p.innerHTML=`
-   <div class="pagehead"><h2>Cash Flow Control</h2><p>Liquidity position drawn from Bank Management, obligations from the Expense ledger, plus manual inflow/outflow forecasting.</p></div>
+   <div class="pagehead"><h2>Cash Flow Control</h2><p>Track receivables and payables (local &amp; overseas), and plan upcoming expenses month by month. Available cash is pulled from Bank Management.</p></div>
    <div class="kpigrid">
-     ${kpi('Available Cash',AED2(cash),`<span class="delta flat">${banks.length} bank(s)</span>`)}
-     ${kpi('Recorded Inflows',AED2(inflow),'<span class="delta flat">manual + collections</span>')}
-     ${kpi('Recorded Outflows',AED2(outflow),'<span class="delta flat">payments + costs</span>')}
-     ${kpi('Net Cash Flow',AED2(net),`<span class="delta ${net>=0?'up':'down'}">${net>=0?'▲ surplus':'▼ deficit'}</span>`)}
-     ${kpi('Cash Runway',runway==null?'—':(net>=0?'∞':runway.toFixed(1)+' mo'),`<span class="delta flat">${avgOpex>0?'avg opex '+AED2(avgOpex)+'/mo':'add expenses'}</span>`)}
+     ${kpi('Total Receivable',AED2(totalRec),`<span class="delta up">local + overseas</span>`,'money')}
+     ${kpi('Total Payable',AED2(totalPay),`<span class="delta down">local + overseas</span>`,'receipt')}
+     ${kpi('Net (Rec − Pay)',AED2(net),`<span class="delta ${net>=0?'up':'down'}">${net>=0?'▲ net inflow':'▼ net outflow'}</span>`,'pnl')}
+     ${kpi('Available Cash',AED2(cash),`<span class="delta flat">${banks.length} account(s)</span>`,'bank')}
+     ${kpi('Upcoming Expenses',AED2(upcTotal),`<span class="delta flat">planned · not in net</span>`,'margin')}
    </div>
-   ${net>=0&&runway!=null?'<div class="notice">✓ Net cash flow is positive — runway is not currently constrained.</div>':''}
-   <div style="margin-bottom:14px"><button class="btn pri" onclick="cfForm()">+ Add Cash Movement</button></div>
-   <div class="card"><div class="head"><h3>Cash Movements</h3></div><div class="body pad0">${flows.length?`<div class="tablescroll"><table><thead><tr><th>Date</th><th>Direction</th><th>Category</th><th>Party</th><th class="num">Expected</th><th class="num">Actual</th><th>Status</th><th></th></tr></thead><tbody>${flows.slice().sort((a,b)=>a.date<b.date?1:-1).map(f=>`<tr><td>${f.date}</td><td><span class="pill ${f.dir==='in'?'pos':'neg'}">${f.dir==='in'?'Inflow':'Outflow'}</span></td><td>${f.cat}</td><td>${f.party||''}</td><td class="num">${AED2(+f.expected||0)}</td><td class="num">${f.actual?AED2(+f.actual):'—'}</td><td>${f.status||'Pending'}</td><td><button class="btn sm danger" onclick="delCf('${f.id}')">✕</button></td></tr>`).join('')}</tbody></table></div>`:emptyState('≋','No cash movements yet','Forecast expected inflows (customer collections, funding) and outflows (supplier payments, salaries, rent) to build a live runway.','Add Movement','cfForm()')}</div></div>`;
+   <div class="grid g2">
+     <div>
+       <div style="font-family:'Sora';font-weight:600;font-size:14px;margin:2px 0 10px;color:var(--pos)">Receivables — ${AED2(totalRec)}</div>
+       ${rpSection(RP_CATS[0])}${rpSection(RP_CATS[1])}
+     </div>
+     <div>
+       <div style="font-family:'Sora';font-weight:600;font-size:14px;margin:2px 0 10px;color:var(--neg)">Payables — ${AED2(totalPay)}</div>
+       ${rpSection(RP_CATS[2])}${rpSection(RP_CATS[3])}
+     </div>
+   </div>
+   <div class="card" style="margin-top:6px"><div class="head"><h3><span class="hic">${SVG.receipt}</span>Upcoming Expenses — month wise</h3><span class="hint">planned total <b>${AED2(upcTotal)}</b> · not included in Net</span></div>
+     <div class="body pad0">
+       <div style="padding:12px 16px"><button class="btn pri" onclick="upcForm()">+ Add Upcoming Expense</button></div>
+       ${months.length?months.map(m=>{const rows=byMonth[m];const sub=rows.reduce((a,x)=>a+(+x.amount||0),0);
+         return `<div style="padding:0 16px 6px"><div style="display:flex;justify-content:space-between;align-items:center;padding:8px 0;border-bottom:1px solid var(--line)"><b style="font-family:'Sora'">${monthLabel(m)}</b><span class="mono" style="color:var(--accent-ink);font-weight:600">${AED2(sub)}</span></div>
+         <table><tbody>${rows.slice().sort((a,b)=>(a.date||'')<(b.date||'')?1:-1).map(x=>`<tr><td>${x.desc||'—'}</td><td style="color:var(--ink-2)">${x.date||''}</td><td class="num">${AED2(+x.amount||0)}</td><td class="num" style="width:40px"><button class="btn sm danger" onclick="delUpc('${x.id}')" title="Mark done / delete">✓</button></td></tr>`).join('')}</tbody></table></div>`;}).join(''):`<div class="empty" style="padding:26px"><p>No upcoming expenses planned.</p></div>`}
+     </div></div>`;
 }
-window.cfForm=function(){openModal('Add Cash Movement',`
-  <div class="frow"><div class="field"><label>Date</label><input type="date" id="c_date" value="${new Date().toISOString().slice(0,10)}"></div><div class="field"><label>Direction</label><select id="c_dir"><option value="in">Inflow</option><option value="out">Outflow</option></select></div></div>
-  <div class="frow"><div class="field"><label>Category</label><select id="c_cat"><option>Customer Collection</option><option>Supplier Payment</option><option>Salaries</option><option>Rent</option><option>Utilities</option><option>Loan</option><option>Tax</option><option>Other</option></select></div><div class="field"><label>Party</label><input id="c_party"></div></div>
-  <div class="frow"><div class="field"><label>Expected Amount</label><input type="number" id="c_expected" step="0.01"></div><div class="field"><label>Actual Amount</label><input type="number" id="c_actual" step="0.01"></div></div>
-  <div class="frow"><div class="field"><label>Status</label><select id="c_status"><option>Pending</option><option>Completed</option><option>Overdue</option></select></div></div>`,
-  ()=>{const f=STORE.read('cashflows',[]);f.push({id:'c'+Date.now(),date:$('#c_date').value,dir:$('#c_dir').value,cat:$('#c_cat').value,party:$('#c_party').value,expected:+$('#c_expected').value||0,actual:$('#c_actual').value?+$('#c_actual').value:null,status:$('#c_status').value});STORE.write('cashflows',f);closeModal();renderCashflow();toast('Movement saved','ok');});};
-window.delCf=function(id){confirmAction('Delete this cash movement?',()=>{let f=STORE.read('cashflows',[]);f=f.filter(x=>x.id!==id);STORE.write('cashflows',f);renderCashflow();toast('Deleted');});};
+window.rpForm=function(preCat){openModal('Add Receivable / Payable',`
+  <div class="frow"><div class="field"><label>Type</label><select id="rp_cat">${RP_CATS.map(c=>`<option value="${c.k}" ${c.k===preCat?'selected':''}>${c.lab}</option>`).join('')}</select></div><div class="field"><label>Due date</label><input type="date" id="rp_date" value="${new Date().toISOString().slice(0,10)}"></div></div>
+  <div class="frow"><div class="field full"><label>Party (customer / supplier)</label><input id="rp_party"></div></div>
+  <div class="frow"><div class="field"><label>Amount (AED)</label><input type="number" id="rp_amt" step="0.01"></div><div class="field"><label>Note</label><input id="rp_note"></div></div>`,
+  ()=>{const a=STORE.read('recpay',[]);a.push({id:'rp'+Date.now(),cat:$('#rp_cat').value,party:$('#rp_party').value,date:$('#rp_date').value,amount:+$('#rp_amt').value||0,note:$('#rp_note').value});STORE.write('recpay',a);closeModal();renderCashflow();toast('Entry added','ok');});};
+window.delRp=function(id){confirmAction('Delete this entry?',()=>{STORE.write('recpay',STORE.read('recpay',[]).filter(x=>x.id!==id));renderCashflow();toast('Deleted');});};
+window.upcForm=function(){const now=new Date();const ym=now.toISOString().slice(0,7);openModal('Add Upcoming Expense',`
+  <div class="frow"><div class="field"><label>Month</label><input type="month" id="u_month" value="${ym}"></div><div class="field"><label>Expected date (optional)</label><input type="date" id="u_date"></div></div>
+  <div class="frow"><div class="field full"><label>Description</label><input id="u_desc" placeholder="e.g. Trade licence renewal"></div></div>
+  <div class="frow"><div class="field"><label>Amount (AED)</label><input type="number" id="u_amt" step="0.01"></div><div class="field"><label>Note</label><input id="u_note"></div></div>`,
+  ()=>{const u=STORE.read('upcoming',[]);u.push({id:'u'+Date.now(),month:$('#u_month').value,date:$('#u_date').value,desc:$('#u_desc').value,amount:+$('#u_amt').value||0,note:$('#u_note').value});STORE.write('upcoming',u);closeModal();renderCashflow();toast('Upcoming expense added','ok');});};
+window.delUpc=function(id){confirmAction('Mark this expense done and remove it?',()=>{STORE.write('upcoming',STORE.read('upcoming',[]).filter(x=>x.id!==id));renderCashflow();toast('Done — removed','ok');});};
 
 /* ============================================================
    EXPORTS
@@ -1334,7 +1385,7 @@ function emptyState(ico,h,p,btn,fn){return `<div class="empty"><div class="ico">
 /* ============================================================
    NAV + RENDER
    ============================================================ */
-const TITLES={exec:['Dashboard','Company-wide sales & profitability'],customers:['Customer Analysis','Per-customer performance & YoY'],salespeople:['Salesperson Performance','Rep leaderboard & margin quality'],quarter:['Quarterly Comparison','Compare Q1–Q4 across years'],onboard:['New Customer Onboard','Newly onboarded customers by period'],dormant:['Dormant Customers','Customers who have gone quiet'],pnl:['Profit & Loss','Dynamic P&L from live data'],assets:['Fixed Assets & Liabilities','Assets, depreciation & liabilities'],expenses:['Operational Expenses','Editable cost ledger'],banks:['Bank Management','Balances & daily ledger'],cashflow:['Cash Flow Control','Liquidity & runway']};
+const TITLES={exec:['Dashboard','Company-wide sales & profitability'],customers:['Customer Analysis','Per-customer performance & YoY'],salespeople:['Salesperson Performance','Rep leaderboard & margin quality'],quarter:['Quarterly Comparison','Compare Q1–Q4 across years'],onboard:['New Customer Onboard','Newly onboarded customers by period'],dormant:['Dormant Customers','Customers who have gone quiet'],pnl:['Profit & Loss','Dynamic P&L from live data'],assets:['Fixed Assets & Liabilities','Assets, depreciation & liabilities'],expenses:['Operational Expenses','Editable cost ledger'],banks:['Bank Management','Balances & daily ledger'],cashflow:['Cash Flow Control','Receivables, payables & upcoming expenses']};
 let currentPage='exec';
 function navigate(page){currentPage=page;
   document.querySelectorAll('.nav a').forEach(a=>a.classList.toggle('active',a.dataset.page===page));
