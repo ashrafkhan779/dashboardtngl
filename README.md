@@ -1,103 +1,138 @@
-# Finance Control — Sales Performance Dashboard
+# Finance Control — Sales & Financial BI Dashboard
 
-A self-contained financial dashboard for the sales ledger (6,605 invoices, Oct 2020 – Feb 2026):
-sales, profitability, customer multi-year comparison, salesperson, P&L, expenses, banks and cash flow.
-Orange/white futuristic UI, logistics iconography, data labels on charts, uploadable logo.
+A single-file, zero-build web dashboard for a UAE trading business. It reads a cleaned
+sales dataset and adds editable finance modules (expenses, banks, assets, cash flow) that
+live entirely in your browser — no backend, no database.
+
+---
 
 ## Files
 
 | File | What it is |
 |---|---|
-| `index.html` | The whole app (HTML + CSS + JS). Loads `data.json` at runtime. |
-| `data.json`  | Cleaned, encoded dataset the dashboard reads. |
-| `convert.py` | Regenerates `data.json` from the raw Excel file. |
-| `README.md`  | This file. |
+| `index.html` | The whole application (all tabs, charts, logic). |
+| `data.json` | The bundled sales dataset the dashboard loads on first run. |
+| `convert.py` | Regenerates `data.json` from an Excel export. |
+| `Sales_Data_Template.xlsx` | The editable sales file — update it and re-upload (or feed it to `convert.py`). |
+| `README.md` | This file. |
 
-## Important: it must be *served*, not opened by double-click
+Keep `index.html` and `data.json` in the **same folder**.
 
-`index.html` loads `data.json` with `fetch()`. Browsers block `fetch()` on `file://` for
-security, so double-clicking the file shows a "could not load data.json" screen (not blank —
-it tells you what to do). Two correct ways to run it:
+---
 
-**A) GitHub Pages (what you want)** — works automatically, no extra steps.
+## Running it
 
-1. Create a new repo and upload `index.html`, `data.json`, `convert.py`, `README.md`.
-2. Repo → **Settings → Pages → Build and deployment → Source: Deploy from a branch → `main` / root** → Save.
-3. Wait ~1 minute. Your dashboard is live at `https://<your-username>.github.io/<repo-name>/`.
-
-**B) Preview locally before pushing** — run a one-line web server in the folder:
+The app loads `data.json` with `fetch`, which browsers block on `file://`. So **serve the
+folder** rather than double-clicking `index.html`:
 
 ```bash
+# from inside the folder
 python -m http.server
+# then open http://localhost:8000
 ```
 
-Then open `http://localhost:8000`.
+Or push the folder to **GitHub Pages** (Settings → Pages → deploy from branch). The live URL
+loads `data.json` automatically.
+
+> Exception: a **Live Dashboard** export (see *Backup & Share*) is fully self-contained and
+> *does* open by double-click — data is baked in, no server needed.
+
+Charts are drawn with Chart.js from a CDN, so an internet connection is needed for the graphs
+to render. All tables, KPIs and figures work offline.
+
+---
 
 ## Updating the data — two ways
 
-**Easiest — upload in the app (no tools needed):**
+### 1. Upload in the app (easiest, no tools)
 
-1. Open `Sales_Data_Template.xlsx` (included). It already holds your current data.
-2. Add new invoices as rows on the **Input Data** sheet. Fill Invoice#, Invoice Date, Customer
-   Name, Quarter, Month, Years, Mode, Invoice Amount, Cost, Sales Person. **Profit and Gross %
-   calculate themselves** — leave them alone.
-3. Save, then in the dashboard click **⭱ Upload Excel** (bottom-left). Every chart, KPI and table
-   refreshes instantly. Your uploaded data is remembered on that device; click **↺ Sample** to
-   revert to the bundled data.
+1. Open `Sales_Data_Template.xlsx`. It already holds your current data.
+2. Add new invoices as rows on the **Input Data** sheet. Fill: `Invoice#, Invoice Date,
+   Customer Name, Quarter, Month, Years, Mode, Invoice Amount, Cost, Sales Person`.
+   **Profit and Gross %** calculate themselves — leave them alone.
+3. Save, then click **⭱ Upload Excel** (bottom-left). Every chart, KPI and table refreshes.
 
-The upload is cleaned automatically (duplicate customers merged, dates repaired, profit recomputed)
-— the same logic as `convert.py`.
+The upload is cleaned automatically (duplicate customers merged, dates repaired, profit
+recomputed) — the same logic as `convert.py`. Your uploaded data is **saved on that device**;
+you do not need to also replace `data.json` for your own live preview.
 
-**Alternative — regenerate data.json with the script:**
+### 2. Regenerate `data.json` with the script
 
 ```bash
 pip install pandas numpy openpyxl        # first time only
 python convert.py "Your New File.xlsx"   # writes a fresh data.json
 ```
 
-Commit the new `data.json` and GitHub Pages updates itself. The script and the uploader both expect
-a sheet named `Input Data` with columns: `Invoice#, Invoice Date, Customer Name, Quarter, Month,
-Years, Mode, Invoice Amount, Cost, Sales Person`.
+Commit the new `data.json` and GitHub Pages updates itself. Both the script and the in-app
+uploader expect a sheet named **Input Data** with the columns listed above.
 
-## Files
+---
 
-| File | What it is |
-|---|---|
-| `index.html` | The whole app. |
-| `data.json` | Bundled dataset the dashboard loads on first run. |
-| `Sales_Data_Template.xlsx` | Edit this and upload it (or feed it to convert.py). |
-| `convert.py` | Regenerates `data.json` from an Excel file. |
-| `README.md` | This file. |
+## Backup & Share
 
-## What the dashboard does
+A browser can't write to `data.json` on disk, so use the **⇩ Backup / Share** button
+(bottom-left). Everything you've uploaded or typed is already saved on your device — these
+options let you back it up or share a live copy:
 
-- **Dashboard** — KPI cards with year-on-year deltas, yearly performance, sales by transport mode
-  (plane/ship/truck/etc.), monthly trend, profit bridge, top-20 customers, salesperson summary.
-- **Customer Analysis** — pick a customer and up to **three years** for a side-by-side comparison
-  table (Sales, COGS, Gross Profit, Margin %, Invoices, Avg Invoice) with Δ vs the prior year,
-  a grouped chart, and full invoice history.
-- **Salesperson Performance** — leaderboard, margin-quality bubble chart, monthly trend.
-- **Profit & Loss** — revenue/COGS pulled live from sales; operating expenses pulled from the
-  Expenses module; year-on-year variances.
-- **Operational Expenses / Bank Management / Cash Flow** — editable modules stored in your browser
-  (`localStorage`). No source data existed for these, so you enter records; they feed the P&L and
-  cash-flow runway automatically.
+- **Live Dashboard (single HTML)** — one self-contained file with your sales data **and** all
+  manual entries baked in. Send it to anyone; they open it and see your live data (no server,
+  no `data.json`). Works by double-click.
+- **data.json** — download the current dataset to replace in your GitHub repo, so the hosted
+  live preview updates for everyone.
+- **All Dashboard Data (Excel)** — a backup workbook of every manual entry (banks, assets,
+  liabilities, expenses, corporate tax, receivables/payables, upcoming expenses).
+- **Sales Data (Excel)** — the cleaned sales dataset as an editable file to re-upload later.
 
-**Filters** (Year, Mode, Salesperson multi-select with an *All* option; Quarter, Month, Customer)
-drive every analytics view. Upload your **logo** via the mark or "Upload logo" under the brand.
+**Manual data persistence:** figures you enter (expenses matrix, bank balances, assets,
+corporate tax, cash-flow, etc.) are stored in your browser and persist across reloads. They
+travel with a **Live Dashboard** export, but they are per-device — to move them to another
+machine or person, export the Live Dashboard or the Excel backup.
 
-## Data cleaning applied by convert.py
+---
 
-- Merged 3 duplicate customers that differed only by case → 253 canonical customers.
-- Repaired 4 dates stored as raw Excel serial numbers.
-- Recomputed Profit and Gross % from source (zero-safe).
-- Retained 100 loss-making invoices (real, kept for margin analysis).
-- Salesperson attribution note: ~90% of revenue is booked to a generic "MANAGEMENT" pool in the
-  source, which limits rep-level analysis until attribution improves.
+## Tabs
 
-## Notes / limits
+**Analytics**
+- **Dashboard** — company KPIs (Sales, COGS, Gross Profit, Gross Margin, Invoices, Operating
+  Expenses, Net Profit, Net Profit Margin), yearly performance, sales by mode, monthly trend,
+  profit bridge (Sales → COGS → Gross Profit → OPEX → CT → Net Profit), Top-20 customers and
+  customer concentration.
+- **Customer Analysis** — per-customer multi-year comparison (Month & Mode filters).
+- **Salesperson Performance** — leaderboard, margin quality, monthly trend.
+- **Quarterly Comparison** — Q1–Q4 across selected years, with Sales / Gross Profit / Margin.
+- **New Customer Onboard** — customers by first-invoice period (year / quarter / month).
+- **Dormant Customers** — who hasn't ordered in 1 month / 2 months / quarter / half-year /
+  year, with search and sortable columns.
 
-- Editable modules use browser storage (per-device). To share data across users, swap the `STORE`
-  object in `index.html` for a Supabase/Firebase call — it's isolated in one place.
-- Charts and Excel export load from cdnjs at runtime, so the page needs internet access to render
-  charts. The data itself is local.
+**Finance**
+- **Profit & Loss** — dynamic P&L (revenue & COGS from sales, opex + corporate tax from the
+  Expenses module) down to Net Profit after tax, with trend and comparison charts.
+- **Fixed Assets & Liabilities** — assets with depreciation, interest and returns (net book
+  value); liabilities with payments and returns (outstanding balance).
+- **Operational Expenses** — editable year × month matrix across 20 heads, year-wise totals,
+  comparison charts, and a Corporate Tax by-year entry that flows into the P&L.
+- **Bank Management** — per-account balances with grouped totals (Banks, Petty Cash, Other).
+- **Cash Flow Control** — Local/Oversea Receivable & Payable figures, Available Cash, a
+  Net + Available Cash position, and month-wise Upcoming Expenses with a chart.
+
+---
+
+## Data model (for reference)
+
+Source sheet **Input Data**, columns: `Invoice#, Invoice Date, Customer Name, Quarter, Month,
+Years, Mode, Invoice Amount, Cost, [Profit], [Gross %], Sales Person`.
+
+Cleaning applied by `convert.py` and the in-app uploader:
+- Trim names and merge case/spacing-duplicate customers to the most common spelling.
+- Repair Excel-serial or text dates to ISO.
+- Recompute `Profit = Invoice Amount − Cost` and `Gross % = Profit / Invoice Amount` (zero-safe).
+
+`data.json` is dictionary-encoded (customers / modes / salespeople indexed) with a `meta`
+block holding source name, generated timestamp, date range and totals.
+
+---
+
+## Notes
+
+- No figures are invented — every number is computed from the data you provide.
+- Nothing is uploaded anywhere; the app runs entirely in your browser.
