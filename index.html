@@ -254,6 +254,14 @@ body{background:
 .opx input.opxcell:focus{border-color:var(--accent);outline:none;background:var(--panel)}
 .opx tfoot td{position:sticky;bottom:0;background:var(--panel);border-top:2px solid var(--line)}
 .opx tfoot td:first-child{z-index:2}
+.kpirow-8{display:grid;grid-template-columns:repeat(8,minmax(118px,1fr));gap:8px;margin-bottom:16px;overflow-x:auto}
+.kpirow-8 .kpi{padding:12px 12px 11px}
+.kpirow-8 .kpi .val{font-size:15px}
+.kpirow-8 .kpi .lab{padding-right:26px;font-size:9.5px;letter-spacing:.03em}
+.kpirow-8 .kpi .ico-badge{width:22px;height:22px;top:11px;right:10px}
+.kpirow-8 .kpi .ico-badge svg{width:12px;height:12px}
+.kpirow-8 .kpi .delta{font-size:9.5px}
+.kpirow-8 .kpi .delta .sub{display:none}
 </style>
 </head>
 <body>
@@ -525,14 +533,28 @@ function renderExec(){
     const cls=d===0?'flat':(good?'up':'down');const ar=d>0?'▲':(d<0?'▼':'▪');
     return `<span class="delta ${cls}">${ar} ${pctS(pc)} <span class="sub">vs ${py}</span></span>`;}
 
+  // operating expenses + net profit (from Expenses & Corporate Tax modules), scoped to the filtered years
+  const _exp=STORE.read('expenses',[]);const _ct=STORE.read('corpTax',{});
+  const opexOf=y=>_exp.filter(e=>new Date(e.date).getFullYear()===y).reduce((s,e)=>s+(+e.total||0),0);
+  const taxOf=y=>+_ct[y]||0;
+  const scopeYears=[...new Set(rows.map(r=>r[I.yr]))];
+  const opexScope=scopeYears.reduce((s,y)=>s+opexOf(y),0);
+  const netScope=a.pf-opexScope-scopeYears.reduce((s,y)=>s+taxOf(y),0);
+  const nmScope=a.rev?netScope/a.rev:0;
+  const curNet=cur.pf-opexOf(ry)-taxOf(ry),prevNet=prev.pf-opexOf(py)-taxOf(py);
+  const curNM=cur.rev?curNet/cur.rev:0,prevNM=prev.rev?prevNet/prev.rev:0;
+
   p.innerHTML=`
    <div class="notice">◆ KPIs compare the scope's reference year <b>${ry}</b> against <b>${py}</b>. Adjust the Year filter to reframe the comparison. Data reflects all active slicers.</div>
-   <div class="kpigrid">
+   <div class="kpirow-8">
      ${kpi('Total Sales',AED2(a.rev),delta(cur.rev,prev.rev),'money')}
      ${kpi('Cost of Goods Sold',AED2(a.cost),delta(cur.cost,prev.cost,true),'box')}
      ${kpi('Gross Profit',AED2(a.pf),delta(cur.pf,prev.pf),'pnl')}
      ${kpi('Gross Margin',pct(a.gp),(hasPrev?`<span class="delta ${cur.gp>=prev.gp?'up':'down'}">${cur.gp>=prev.gp?'▲':'▼'} ${((cur.gp-prev.gp)*100).toFixed(1)} pts <span class="sub">vs ${py}</span></span>`:'<span class="delta flat">—</span>'),'margin')}
      ${kpi('Invoices',num(a.inv),delta(cur.inv,prev.inv),'invoice')}
+     ${kpi('Operating Expenses',AED2(opexScope),delta(opexOf(ry),opexOf(py),true),'receipt')}
+     ${kpi('Net Profit',AED2(netScope),delta(curNet,prevNet),'pnl')}
+     ${kpi('Net Profit Margin',pct(nmScope),(hasPrev?`<span class="delta ${curNM>=prevNM?'up':'down'}">${curNM>=prevNM?'▲':'▼'} ${((curNM-prevNM)*100).toFixed(1)} pts <span class="sub">vs ${py}</span></span>`:'<span class="delta flat">—</span>'),'margin')}
    </div>
 
    <div class="grid g3" style="margin-bottom:16px">
