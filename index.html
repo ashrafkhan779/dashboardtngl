@@ -270,6 +270,7 @@ body{background:
       <a data-page="salespeople"><span class="ic" data-i="chart"></span> Salesperson Performance</a>
       <a data-page="quarter"><span class="ic" data-i="pnl"></span> Quarterly Comparison</a>
       <a data-page="onboard"><span class="ic" data-i="user"></span> New Customer Onboard</a>
+      <a data-page="dormant"><span class="ic" data-i="user"></span> Dormant Customers</a>
       <div class="grp">Finance</div>
       <a data-page="pnl"><span class="ic" data-i="pnl"></span> Profit &amp; Loss</a>
       <a data-page="assets"><span class="ic" data-i="bank"></span> Fixed Assets &amp; Liabilities</a>
@@ -310,6 +311,7 @@ body{background:
     <div class="page" id="page-salespeople"></div>
     <div class="page" id="page-quarter"></div>
     <div class="page" id="page-onboard"></div>
+    <div class="page" id="page-dormant"></div>
     <div class="page" id="page-assets"></div>
     <div class="page" id="page-pnl"></div>
     <div class="page" id="page-expenses"></div>
@@ -906,69 +908,142 @@ function renderOnboard(){
 }
 
 /* ============================================================
+   PAGE: DORMANT CUSTOMERS
+   ============================================================ */
+let dormSel=0;
+function renderDormant(){
+  const p=$('#page-dormant');
+  const info={};
+  for(const r of ROWS){const c=r[I.c];const o=info[c]||(info[c]={last:'',rev:0,pf:0,inv:new Set()});if(r[I.date]>o.last)o.last=r[I.date];o.rev+=r[I.rev];o.pf+=r[I.profit];o.inv.add(r[I.inv]);}
+  const ref=new Date(DB.meta.date_max+'T00:00:00Z');
+  const daysOf=a=>Math.round((ref-new Date(a+'T00:00:00Z'))/86400000);
+  const custs=Object.entries(info).map(([c,o])=>({c:+c,last:o.last,days:daysOf(o.last),rev:o.rev,pf:o.pf,gp:o.rev?o.pf/o.rev:0,inv:o.inv.size}));
+  const totalRev=agg(ROWS).rev;
+  const TH=[{k:'1 month',d:30},{k:'2 months',d:60},{k:'1 quarter',d:90},{k:'half year',d:180},{k:'1 year',d:365}];
+  const lbl='font-size:10px;text-transform:uppercase;letter-spacing:.05em;color:var(--neutral);font-weight:600;display:block;margin-bottom:6px';
+  p.innerHTML=`
+   <div class="pagehead"><h2>Dormant Customers</h2><p>Customers with <b>no invoice</b> within each window, measured from the latest transaction in your data (<b>${DB.meta.date_max}</b>). Pick a window to list who has gone quiet.</p></div>
+   <div style="margin-bottom:16px"><label style="${lbl}">No business in the last…</label><div class="seg" id="dormSeg">${TH.map((t,i)=>`<button data-i="${i}">${t.k}</button>`).join('')}</div></div>
+   <div class="kpigrid" id="dormKpis"></div>
+   <div class="card" style="margin-bottom:16px"><div class="head"><h3><span class="hic">${SVG.chart}</span>Dormancy Summary</h3><span class="hint">counts are cumulative — longer windows are subsets of shorter ones</span></div><div class="body pad0"><div id="dormSummary"></div></div></div>
+   <div class="card"><div class="head"><h3 id="dormTitle"><span class="hic">${SVG.user}</span>Dormant list</h3><span class="hint" id="dormSub"></span></div><div class="body pad0"><div class="tablescroll" id="dormTbl"></div></div></div>`;
+
+  // summary (static): each window's count + revenue at risk
+  let sh='<table><thead><tr><th>No business in the last…</th><th class="num">Customers</th><th class="num">% of base</th><th class="num">Lifetime Sales</th><th class="num">Rev at risk</th></tr></thead><tbody>';
+  TH.forEach((t,i)=>{const g=custs.filter(x=>x.days>=t.d);const rev=g.reduce((a,x)=>a+x.rev,0);
+    sh+=`<tr class="clickable" onclick="setDorm(${i})"><td><b>${t.k}</b> <span style="color:var(--neutral);font-size:11px">(≥ ${t.d} days)</span></td><td class="num">${g.length}</td><td class="num">${pct(custs.length?g.length/custs.length:0)}</td><td class="num">${AED2(rev)}</td><td class="num">${pct(totalRev?rev/totalRev:0)}</td></tr>`;});
+  sh+='</tbody></table>';$('#dormSummary').innerHTML=sh;
+
+  window.setDorm=function(i){dormSel=i;$('#dormSeg').querySelectorAll('button').forEach(b=>b.classList.toggle('on',+b.dataset.i===i));draw();};
+  $('#dormSeg').querySelectorAll('button').forEach(b=>b.onclick=()=>setDorm(+b.dataset.i));
+
+  function draw(){
+    const t=TH[dormSel];const list=custs.filter(x=>x.days>=t.d).sort((a,b)=>b.days-a.days);
+    const active=custs.filter(x=>x.days<30).length;
+    const rev=list.reduce((a,x)=>a+x.rev,0);
+    $('#dormKpis').innerHTML=[
+      kpi('Reference Date',DB.meta.date_max,`<span class="delta flat">latest invoice</span>`,'invoice'),
+      kpi('Total Customers',num(custs.length),`<span class="delta flat">ever transacted</span>`,'user'),
+      kpi('Active (last 30d)',num(active),`<span class="delta ${active?'up':'flat'}">still buying</span>`,'user'),
+      kpi('Dormant · '+t.k,num(list.length),`<span class="delta ${list.length?'down':'up'}">no order ${t.d}d+</span>`,'user'),
+      kpi('Revenue at Risk',AED2(rev),`<span class="delta flat">${pct(totalRev?rev/totalRev:0)} of lifetime</span>`,'money')
+    ].join('');
+    $('#dormTitle').innerHTML=`<span class="hic">${SVG.user}</span>No business in the last ${t.k}`;
+    $('#dormSub').textContent=list.length+' customer'+(list.length===1?'':'s');
+    let h='<table><thead><tr><th>Customer</th><th>Last Order</th><th class="num">Days Since</th><th class="num">Months</th><th class="num">Lifetime Sales</th><th class="num">GP%</th><th class="num">Inv</th></tr></thead><tbody>';
+    list.forEach(x=>{h+=`<tr class="clickable" onclick="gotoCustomer(${x.c})"><td><b>${CUST[x.c]}</b></td><td>${x.last}</td><td class="num"><span class="pill ${x.days>=365?'neg':x.days>=180?'neu':''}">${num(x.days)}</span></td><td class="num">${(x.days/30).toFixed(1)}</td><td class="num">${AED2(x.rev)}</td><td class="num">${pct(x.gp)}</td><td class="num">${x.inv}</td></tr>`;});
+    if(!list.length)h+='<tr><td colspan="7" style="text-align:center;color:var(--neutral);padding:24px">No customers dormant this long — great retention.</td></tr>';
+    h+='</tbody></table>';$('#dormTbl').innerHTML=h;
+  }
+  setDorm(dormSel);
+}
+
+/* ============================================================
    PAGE: FIXED ASSETS & LIABILITIES
    ============================================================ */
 const ASSET_CATS=['Fixed Asset','Security Deposit Given','Advance to Employee'];
 const LIAB_CATS=['Loan','Security Deposit','Advance'];
+const AMV={depreciation:{lab:'Depreciation',sign:-1},interest:{lab:'Interest',sign:+1},return:{lab:'Return',sign:-1}};
+const LMV={payment:{lab:'Payment',sign:-1},return:{lab:'Return',sign:-1}};
+function migrateAssets(){ if(!STORE.read('assetMovesV1',false)){ const legacy=STORE.read('depr',[]); const mv=STORE.read('assetMoves',[]); legacy.forEach(d=>mv.push({id:d.id,assetId:d.assetId,type:'depreciation',date:d.date,amount:+d.amount||0,note:d.note})); STORE.write('assetMoves',mv); STORE.write('assetMovesV1',true); } }
 function renderAssets(){
+  migrateAssets();
   const p=$('#page-assets');
-  const assets=STORE.read('assets',[]),depr=STORE.read('depr',[]),liab=STORE.read('liabilities',[]);
-  const accum=id=>depr.filter(d=>d.assetId===id).reduce((a,d)=>a+(+d.amount||0),0);
-  const netOf=a=>(+a.cost||0)-accum(a.id);
+  const assets=STORE.read('assets',[]),amoves=STORE.read('assetMoves',[]),liab=STORE.read('liabilities',[]),lmoves=STORE.read('liabMoves',[]);
+  const amv=(id,t)=>amoves.filter(m=>m.assetId===id&&m.type===t).reduce((a,m)=>a+(+m.amount||0),0);
+  const dep=id=>amv(id,'depreciation'),int=id=>amv(id,'interest'),ret=id=>amv(id,'return');
+  const netOf=a=>(+a.cost||0)+int(a.id)-dep(a.id)-ret(a.id);
+  const lmv=(id,t)=>lmoves.filter(m=>m.liabId===id&&m.type===t).reduce((a,m)=>a+(+m.amount||0),0);
+  const outOf=l=>(+l.amount||0)-lmv(l.id,'payment')-lmv(l.id,'return');
   const totalCost=assets.reduce((s,a)=>s+(+a.cost||0),0);
-  const totalDepr=depr.reduce((s,d)=>s+(+d.amount||0),0);
+  const totalDep=amoves.filter(m=>m.type==='depreciation').reduce((s,m)=>s+(+m.amount||0),0);
+  const totalInt=amoves.filter(m=>m.type==='interest').reduce((s,m)=>s+(+m.amount||0),0);
   const fixedNet=assets.filter(a=>a.cat==='Fixed Asset').reduce((s,a)=>s+netOf(a),0);
-  const otherAssets=assets.filter(a=>a.cat!=='Fixed Asset').reduce((s,a)=>s+netOf(a),0);
-  const totalAssetsNet=totalCost-totalDepr;
-  const totalLiab=liab.reduce((s,l)=>s+(+l.amount||0),0);
+  const otherNet=assets.filter(a=>a.cat!=='Fixed Asset').reduce((s,a)=>s+netOf(a),0);
+  const totalAssetsNet=assets.reduce((s,a)=>s+netOf(a),0);
+  const totalLiab=liab.reduce((s,l)=>s+outOf(l),0);
   const net=totalAssetsNet-totalLiab;
+  // per-category asset action buttons
+  const aBtns=a=>{let b='';if(a.cat==='Fixed Asset'){b+=`<button class="btn sm" onclick="assetMove('${a.id}','depreciation')">+Dep</button> <button class="btn sm" onclick="assetMove('${a.id}','interest')">+Int</button> `;}
+    if(a.cat==='Advance to Employee'||a.cat==='Security Deposit Given'){b+=`<button class="btn sm" onclick="assetMove('${a.id}','return')">+Return</button> `;}
+    return b+`<button class="btn sm danger" onclick="delAsset('${a.id}')">✕</button>`;};
+  const lBtns=l=>{const t=l.cat==='Loan'?'payment':'return';const lab=l.cat==='Loan'?'+Paid':'+Return';return `<button class="btn sm" onclick="liabMove('${l.id}','${t}')">${lab}</button> <button class="btn sm danger" onclick="delLiab('${l.id}')">✕</button>`;};
   p.innerHTML=`
-   <div class="pagehead"><h2>Fixed Assets &amp; Liabilities</h2><p>Track asset cost and depreciation to see true net book value, alongside liabilities. Stored in your browser.</p></div>
+   <div class="pagehead"><h2>Fixed Assets &amp; Liabilities</h2><p>Track cost, depreciation and interest for true net book value; record liability payments and returns for outstanding balances. Stored in your browser.</p></div>
    <div class="kpigrid">
-     ${kpi('Fixed Assets (net)',AED2(fixedNet),`<span class="delta flat">after depreciation</span>`,'bank')}
-     ${kpi('Deposits & Advances',AED2(otherAssets),`<span class="delta flat">given out</span>`,'money')}
-     ${kpi('Accum. Depreciation',AED2(totalDepr),`<span class="delta flat">of ${AED2(totalCost)} cost</span>`,'margin')}
-     ${kpi('Total Liabilities',AED2(totalLiab),`<span class="delta flat">loans, deposits, advances</span>`,'receipt')}
+     ${kpi('Fixed Assets (net)',AED2(fixedNet),`<span class="delta flat">cost + interest − deprec.</span>`,'bank')}
+     ${kpi('Deposits & Advances',AED2(otherNet),`<span class="delta flat">net of returns</span>`,'money')}
+     ${kpi('Accum. Depreciation',AED2(totalDep),`<span class="delta flat">of ${AED2(totalCost)} cost</span>`,'margin')}
+     ${kpi('Interest Accrued',AED2(totalInt),`<span class="delta flat">added to assets</span>`,'money')}
+     ${kpi('Total Liabilities',AED2(totalLiab),`<span class="delta flat">outstanding</span>`,'receipt')}
      ${kpi('Net Position',AED2(net),`<span class="delta ${net>=0?'up':'down'}">${net>=0?'▲ net assets':'▼ net liabilities'}</span>`,'pnl')}
    </div>
    <div style="display:flex;gap:8px;margin-bottom:14px;flex-wrap:wrap">
      <button class="btn pri" onclick="assetForm()">+ Add Asset</button>
-     <button class="btn" onclick="deprForm()">+ Depreciation Entry</button>
      <button class="btn" onclick="liabForm()">+ Add Liability</button>
    </div>
-   <div class="card" style="margin-bottom:16px"><div class="head"><h3><span class="hic">${SVG.bank}</span>Assets Register</h3><span class="hint">net value = cost − accumulated depreciation</span></div><div class="body pad0">
-     ${assets.length?`<div class="tablescroll"><table><thead><tr><th>Asset</th><th>Category</th><th>Acquired</th><th class="num">Cost</th><th class="num">Accum. Deprec.</th><th class="num">Net Value</th><th></th></tr></thead><tbody>
-       ${assets.slice().sort((a,b)=>(a.cat+a.name).localeCompare(b.cat+b.name)).map(a=>`<tr><td><b>${a.name}</b></td><td><span class="pill neu">${a.cat}</span></td><td>${a.date||'—'}</td><td class="num">${AED2(+a.cost||0)}</td><td class="num down">${AED2(accum(a.id))}</td><td class="num"><b>${AED2(netOf(a))}</b></td><td class="num"><button class="btn sm" onclick="deprForm('${a.id}')">+Dep</button> <button class="btn sm danger" onclick="delAsset('${a.id}')">✕</button></td></tr>`).join('')}
-     </tbody></table></div>`:emptyState('▥','No assets yet','Add fixed assets, security deposits given, or employee advances. Record depreciation to track true book value.','Add Asset','assetForm()')}
+   <div class="card" style="margin-bottom:16px"><div class="head"><h3><span class="hic">${SVG.bank}</span>Assets Register</h3><span class="hint">net = cost + interest − depreciation − returns</span></div><div class="body pad0">
+     ${assets.length?`<div class="tablescroll"><table><thead><tr><th>Asset</th><th>Category</th><th>Acquired</th><th class="num">Cost</th><th class="num">Interest</th><th class="num">Deprec.</th><th class="num">Returns</th><th class="num">Net Value</th><th></th></tr></thead><tbody>
+       ${assets.slice().sort((a,b)=>(a.cat+a.name).localeCompare(b.cat+b.name)).map(a=>`<tr><td><b>${a.name}</b></td><td><span class="pill neu">${a.cat}</span></td><td>${a.date||'—'}</td><td class="num">${AED2(+a.cost||0)}</td><td class="num up">${int(a.id)?AED2(int(a.id)):'—'}</td><td class="num down">${dep(a.id)?AED2(dep(a.id)):'—'}</td><td class="num down">${ret(a.id)?AED2(ret(a.id)):'—'}</td><td class="num"><b>${AED2(netOf(a))}</b></td><td class="num" style="white-space:nowrap">${aBtns(a)}</td></tr>`).join('')}
+     </tbody></table></div>`:emptyState('▥','No assets yet','Add fixed assets, security deposits given, or employee advances. Record depreciation, interest and returns to track true value.','Add Asset','assetForm()')}
    </div></div>
-   ${depr.length?`<div class="card" style="margin-bottom:16px"><div class="head"><h3><span class="hic">${SVG.margin}</span>Depreciation Ledger</h3></div><div class="body pad0"><div class="tablescroll"><table><thead><tr><th>Date</th><th>Asset</th><th>Note</th><th class="num">Amount</th><th></th></tr></thead><tbody>
-     ${depr.slice().sort((a,b)=>a.date<b.date?1:-1).map(d=>{const a=assets.find(x=>x.id===d.assetId);return `<tr><td>${d.date}</td><td>${a?a.name:'—'}</td><td>${d.note||''}</td><td class="num down">${AED2(+d.amount||0)}</td><td class="num"><button class="btn sm danger" onclick="delDepr('${d.id}')">✕</button></td></tr>`;}).join('')}
+   ${amoves.length?`<div class="card" style="margin-bottom:16px"><div class="head"><h3><span class="hic">${SVG.margin}</span>Asset Movements</h3></div><div class="body pad0"><div class="tablescroll"><table><thead><tr><th>Date</th><th>Asset</th><th>Type</th><th>Note</th><th class="num">Amount</th><th></th></tr></thead><tbody>
+     ${amoves.slice().sort((a,b)=>a.date<b.date?1:-1).map(m=>{const a=assets.find(x=>x.id===m.assetId);const s=AMV[m.type];return `<tr><td>${m.date}</td><td>${a?a.name:'—'}</td><td><span class="pill ${s.sign>0?'pos':'neg'}">${s.lab}</span></td><td>${m.note||''}</td><td class="num ${s.sign>0?'up':'down'}">${s.sign>0?'+':'−'}${AED2(+m.amount||0)}</td><td class="num"><button class="btn sm danger" onclick="delAssetMove('${m.id}')">✕</button></td></tr>`;}).join('')}
    </tbody></table></div></div></div>`:''}
-   <div class="card"><div class="head"><h3><span class="hic">${SVG.receipt}</span>Liabilities Register</h3></div><div class="body pad0">
-     ${liab.length?`<div class="tablescroll"><table><thead><tr><th>Liability</th><th>Category</th><th>Date</th><th>Note</th><th class="num">Amount</th><th></th></tr></thead><tbody>
-       ${liab.slice().sort((a,b)=>(a.cat+a.name).localeCompare(b.cat+b.name)).map(l=>`<tr><td><b>${l.name}</b></td><td><span class="pill neu">${l.cat}</span></td><td>${l.date||'—'}</td><td>${l.note||''}</td><td class="num">${AED2(+l.amount||0)}</td><td class="num"><button class="btn sm danger" onclick="delLiab('${l.id}')">✕</button></td></tr>`).join('')}
-       <tr style="font-weight:600;border-top:2px solid var(--line)"><td colspan="4">Total Liabilities</td><td class="num">${AED2(totalLiab)}</td><td></td></tr>
-     </tbody></table></div>`:emptyState('▦','No liabilities yet','Record loans, security deposits received, and advances received.','Add Liability','liabForm()')}
-   </div></div>`;
+   <div class="card" style="margin-bottom:16px"><div class="head"><h3><span class="hic">${SVG.receipt}</span>Liabilities Register</h3></div><div class="body pad0">
+     ${liab.length?`<div class="tablescroll"><table><thead><tr><th>Liability</th><th>Category</th><th>Date</th><th class="num">Original</th><th class="num">Paid / Returned</th><th class="num">Outstanding</th><th></th></tr></thead><tbody>
+       ${liab.slice().sort((a,b)=>(a.cat+a.name).localeCompare(b.cat+b.name)).map(l=>{const pr=lmv(l.id,'payment')+lmv(l.id,'return');return `<tr><td><b>${l.name}</b></td><td><span class="pill neu">${l.cat}</span></td><td>${l.date||'—'}</td><td class="num">${AED2(+l.amount||0)}</td><td class="num down">${pr?AED2(pr):'—'}</td><td class="num"><b>${AED2(outOf(l))}</b></td><td class="num" style="white-space:nowrap">${lBtns(l)}</td></tr>`;}).join('')}
+       <tr style="font-weight:600;border-top:2px solid var(--line)"><td colspan="5">Total Outstanding</td><td class="num">${AED2(totalLiab)}</td><td></td></tr>
+     </tbody></table></div>`:emptyState('▦','No liabilities yet','Record loans, security deposits received, and advances received — then log payments and returns.','Add Liability','liabForm()')}
+   </div></div>
+   ${lmoves.length?`<div class="card"><div class="head"><h3><span class="hic">${SVG.money}</span>Liability Payments & Returns</h3></div><div class="body pad0"><div class="tablescroll"><table><thead><tr><th>Date</th><th>Liability</th><th>Type</th><th>Note</th><th class="num">Amount</th><th></th></tr></thead><tbody>
+     ${lmoves.slice().sort((a,b)=>a.date<b.date?1:-1).map(m=>{const l=liab.find(x=>x.id===m.liabId);return `<tr><td>${m.date}</td><td>${l?l.name:'—'}</td><td><span class="pill neu">${LMV[m.type].lab}</span></td><td>${m.note||''}</td><td class="num down">−${AED2(+m.amount||0)}</td><td class="num"><button class="btn sm danger" onclick="delLiabMove('${m.id}')">✕</button></td></tr>`;}).join('')}
+   </tbody></table></div></div></div>`:''}`;
 }
 window.assetForm=function(){openModal('Add Asset',`
    <div class="frow"><div class="field full"><label>Asset name</label><input id="a_name" placeholder="e.g. Toyota Hilux / Office fit-out"></div></div>
    <div class="frow"><div class="field"><label>Category</label><select id="a_cat">${ASSET_CATS.map(c=>`<option>${c}</option>`).join('')}</select></div><div class="field"><label>Acquisition date</label><input type="date" id="a_date" value="${new Date().toISOString().slice(0,10)}"></div></div>
    <div class="frow"><div class="field"><label>Cost / Amount (AED)</label><input type="number" id="a_cost" step="0.01"></div><div class="field"><label>Notes</label><input id="a_note"></div></div>`,
    ()=>{const a=STORE.read('assets',[]);a.push({id:'a'+Date.now(),name:$('#a_name').value||'Asset',cat:$('#a_cat').value,date:$('#a_date').value,cost:+$('#a_cost').value||0,note:$('#a_note').value});STORE.write('assets',a);closeModal();renderAssets();toast('Asset added','ok');});};
-window.deprForm=function(preId){const assets=STORE.read('assets',[]);if(!assets.length){toast('Add an asset first','warn');return;}
-   openModal('Depreciation Entry',`
-   <div class="frow"><div class="field"><label>Asset</label><select id="dp_asset">${assets.map(a=>`<option value="${a.id}" ${a.id===preId?'selected':''}>${a.name}</option>`).join('')}</select></div><div class="field"><label>Date</label><input type="date" id="dp_date" value="${new Date().toISOString().slice(0,10)}"></div></div>
-   <div class="frow"><div class="field"><label>Depreciation amount (AED)</label><input type="number" id="dp_amt" step="0.01"></div><div class="field"><label>Note</label><input id="dp_note" placeholder="e.g. FY2025 annual"></div></div>`,
-   ()=>{const d=STORE.read('depr',[]);d.push({id:'d'+Date.now(),assetId:$('#dp_asset').value,date:$('#dp_date').value,amount:+$('#dp_amt').value||0,note:$('#dp_note').value});STORE.write('depr',d);closeModal();renderAssets();toast('Depreciation recorded','ok');});};
+window.assetMove=function(assetId,type){const a=STORE.read('assets',[]).find(x=>x.id===assetId);const lab=AMV[type].lab;
+   openModal(lab+' — '+(a?a.name:''),`
+   <div class="frow"><div class="field"><label>Date</label><input type="date" id="mv_date" value="${new Date().toISOString().slice(0,10)}"></div><div class="field"><label>${lab} amount (AED)</label><input type="number" id="mv_amt" step="0.01"></div></div>
+   <div class="frow"><div class="field full"><label>Note</label><input id="mv_note" placeholder="${type==='depreciation'?'e.g. FY2025 annual':type==='interest'?'e.g. accrued interest':'e.g. partial return'}"></div></div>`,
+   ()=>{const mv=STORE.read('assetMoves',[]);mv.push({id:'m'+Date.now(),assetId,type,date:$('#mv_date').value,amount:+$('#mv_amt').value||0,note:$('#mv_note').value});STORE.write('assetMoves',mv);closeModal();renderAssets();toast(lab+' recorded','ok');});};
 window.liabForm=function(){openModal('Add Liability',`
    <div class="frow"><div class="field full"><label>Liability name</label><input id="l_name" placeholder="e.g. Bank term loan / Customer deposit"></div></div>
    <div class="frow"><div class="field"><label>Category</label><select id="l_cat">${LIAB_CATS.map(c=>`<option>${c}</option>`).join('')}</select></div><div class="field"><label>Date</label><input type="date" id="l_date" value="${new Date().toISOString().slice(0,10)}"></div></div>
    <div class="frow"><div class="field"><label>Amount (AED)</label><input type="number" id="l_amt" step="0.01"></div><div class="field"><label>Notes</label><input id="l_note"></div></div>`,
    ()=>{const l=STORE.read('liabilities',[]);l.push({id:'l'+Date.now(),name:$('#l_name').value||'Liability',cat:$('#l_cat').value,date:$('#l_date').value,amount:+$('#l_amt').value||0,note:$('#l_note').value});STORE.write('liabilities',l);closeModal();renderAssets();toast('Liability added','ok');});};
-window.delAsset=function(id){confirmAction('Delete this asset and its depreciation entries?',()=>{STORE.write('assets',STORE.read('assets',[]).filter(a=>a.id!==id));STORE.write('depr',STORE.read('depr',[]).filter(d=>d.assetId!==id));renderAssets();toast('Deleted');});};
-window.delDepr=function(id){confirmAction('Delete this depreciation entry?',()=>{STORE.write('depr',STORE.read('depr',[]).filter(d=>d.id!==id));renderAssets();toast('Deleted');});};
-window.delLiab=function(id){confirmAction('Delete this liability?',()=>{STORE.write('liabilities',STORE.read('liabilities',[]).filter(l=>l.id!==id));renderAssets();toast('Deleted');});};
+window.liabMove=function(liabId,type){const l=STORE.read('liabilities',[]).find(x=>x.id===liabId);const lab=type==='payment'?'Payment':(l&&l.cat==='Security Deposit'?'Deposit Return':l&&l.cat==='Advance'?'Advance Return':'Return');
+   openModal(lab+' — '+(l?l.name:''),`
+   <div class="frow"><div class="field"><label>Date</label><input type="date" id="lm_date" value="${new Date().toISOString().slice(0,10)}"></div><div class="field"><label>${lab} amount (AED)</label><input type="number" id="lm_amt" step="0.01"></div></div>
+   <div class="frow"><div class="field full"><label>Note</label><input id="lm_note"></div></div>`,
+   ()=>{const mv=STORE.read('liabMoves',[]);mv.push({id:'lm'+Date.now(),liabId,type,date:$('#lm_date').value,amount:+$('#lm_amt').value||0,note:$('#lm_note').value});STORE.write('liabMoves',mv);closeModal();renderAssets();toast(lab+' recorded','ok');});};
+window.delAsset=function(id){confirmAction('Delete this asset and its movements?',()=>{STORE.write('assets',STORE.read('assets',[]).filter(a=>a.id!==id));STORE.write('assetMoves',STORE.read('assetMoves',[]).filter(m=>m.assetId!==id));renderAssets();toast('Deleted');});};
+window.delAssetMove=function(id){confirmAction('Delete this movement?',()=>{STORE.write('assetMoves',STORE.read('assetMoves',[]).filter(m=>m.id!==id));renderAssets();toast('Deleted');});};
+window.delLiab=function(id){confirmAction('Delete this liability and its movements?',()=>{STORE.write('liabilities',STORE.read('liabilities',[]).filter(l=>l.id!==id));STORE.write('liabMoves',STORE.read('liabMoves',[]).filter(m=>m.liabId!==id));renderAssets();toast('Deleted');});};
+window.delLiabMove=function(id){confirmAction('Delete this entry?',()=>{STORE.write('liabMoves',STORE.read('liabMoves',[]).filter(m=>m.id!==id));renderAssets();toast('Deleted');});};
 
 /* ============================================================
    PAGE: P&L  (auto revenue/COGS + editable opex from Expenses)
@@ -1259,13 +1334,13 @@ function emptyState(ico,h,p,btn,fn){return `<div class="empty"><div class="ico">
 /* ============================================================
    NAV + RENDER
    ============================================================ */
-const TITLES={exec:['Dashboard','Company-wide sales & profitability'],customers:['Customer Analysis','Per-customer performance & YoY'],salespeople:['Salesperson Performance','Rep leaderboard & margin quality'],quarter:['Quarterly Comparison','Compare Q1–Q4 across years'],onboard:['New Customer Onboard','Newly onboarded customers by period'],pnl:['Profit & Loss','Dynamic P&L from live data'],assets:['Fixed Assets & Liabilities','Assets, depreciation & liabilities'],expenses:['Operational Expenses','Editable cost ledger'],banks:['Bank Management','Balances & daily ledger'],cashflow:['Cash Flow Control','Liquidity & runway']};
+const TITLES={exec:['Dashboard','Company-wide sales & profitability'],customers:['Customer Analysis','Per-customer performance & YoY'],salespeople:['Salesperson Performance','Rep leaderboard & margin quality'],quarter:['Quarterly Comparison','Compare Q1–Q4 across years'],onboard:['New Customer Onboard','Newly onboarded customers by period'],dormant:['Dormant Customers','Customers who have gone quiet'],pnl:['Profit & Loss','Dynamic P&L from live data'],assets:['Fixed Assets & Liabilities','Assets, depreciation & liabilities'],expenses:['Operational Expenses','Editable cost ledger'],banks:['Bank Management','Balances & daily ledger'],cashflow:['Cash Flow Control','Liquidity & runway']};
 let currentPage='exec';
 function navigate(page){currentPage=page;
   document.querySelectorAll('.nav a').forEach(a=>a.classList.toggle('active',a.dataset.page===page));
   document.querySelectorAll('.page').forEach(pg=>pg.classList.remove('active'));$('#page-'+page).classList.add('active');
   $('#pageTitle').childNodes[0].nodeValue=TITLES[page][0];$('#pageSub').textContent=TITLES[page][1];
-  const filtersHidden=['quarter','onboard','assets','expenses','banks','cashflow','data'].includes(page);
+  const filtersHidden=['quarter','onboard','dormant','assets','expenses','banks','cashflow','data'].includes(page);
   document.querySelectorAll('.filterbar').forEach(f=>f.style.display=filtersHidden?'none':'flex');
   // Customer Analysis: only Month + Mode filters apply
   const custOnly=page==='customers';
@@ -1279,6 +1354,7 @@ function render(){
   else if(currentPage==='salespeople')renderSalespeople();
   else if(currentPage==='quarter')renderQuarter();
   else if(currentPage==='onboard')renderOnboard();
+  else if(currentPage==='dormant')renderDormant();
   else if(currentPage==='assets')renderAssets();
   else if(currentPage==='pnl')renderPnl();
   else if(currentPage==='expenses')renderExpenses();
@@ -1286,7 +1362,7 @@ function render(){
   else if(currentPage==='cashflow')renderCashflow();
 }
 document.getElementById('nav').addEventListener('click',e=>{const a=e.target.closest('a');if(a)navigate(a.dataset.page);});
-$('#exportBtn').onclick=()=>{if(['exec','customers','salespeople','quarter','onboard','pnl'].includes(currentPage))currentExport();else backupData();};
+$('#exportBtn').onclick=()=>{if(['exec','customers','salespeople','quarter','onboard','dormant','pnl'].includes(currentPage))currentExport();else backupData();};
 $('#themeBtn').onclick=()=>{const h=document.documentElement;const dark=h.getAttribute('data-theme')==='dark';h.setAttribute('data-theme',dark?'light':'dark');STORE.write('theme',dark?'light':'dark');render();};
 
 /* ---------- boot ---------- */
