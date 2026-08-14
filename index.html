@@ -246,6 +246,12 @@ body{background:
 .foot-meta .fr span{color:var(--neutral);text-transform:uppercase;letter-spacing:.04em;font-size:9.5px;font-weight:600}
 .foot-meta .fr b{color:var(--ink);font-size:11.5px;font-weight:600}
 .foot-meta .fr b.ell{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:190px}
+.opx th,.opx td{padding:6px 8px;white-space:nowrap}
+.opx th:first-child,.opx td:first-child{position:sticky;left:0;background:var(--panel);z-index:1}
+.opx input.opxcell{width:66px;text-align:right;padding:5px 6px;border:1px solid var(--line);border-radius:6px;background:var(--panel-2);color:var(--ink);font-family:'IBM Plex Mono';font-size:12px}
+.opx input.opxcell:focus{border-color:var(--accent);outline:none;background:var(--panel)}
+.opx tfoot td{position:sticky;bottom:0;background:var(--panel);border-top:2px solid var(--line)}
+.opx tfoot td:first-child{z-index:2}
 </style>
 </head>
 <body>
@@ -1108,51 +1114,80 @@ function renderPnl(){
 /* ============================================================
    PAGE: OPERATIONAL EXPENSES  (editable, localStorage)
    ============================================================ */
-const EXP_HEADS_DEFAULT=['Other Expenses','IT & Internet Expenses','Bank Charges','Annual Licence & Registration Fee'];
+const OPEX_HEADS=['BAD DEBT','BANK FEES & CHARGES','CSR','DEPRECIATION EXPENSE','INSURANCE','ANNUAL LIC & REG. FEE','IT & INTERNET EXP.','MEAL & ENTERTAINMENT','OFFICE SUPPLIES, PRINTING AND STATIONERIES','ADVERTISEMENT & MARKETING','RENT EXPENSE','SALARY & EMPLOYEE WAGES','VISA','STAFF WELFARE','JLT 606 - EXPENSES','OTHER EXPENSES','ANNUAL FLIGHT TICKET','PHONE EXPENSES','TRAVEL EXPENSES','TRUCK EXPENSES'];
+let opexYear=null,opexRows=[];
+function computeExp(year){
+  const exp=STORE.read('expenses',[]);const byHM={},rowTot={},monTot=Array(12).fill(0);let grand=0;
+  exp.forEach(e=>{const d=new Date(e.date);if(d.getFullYear()!==year)return;const m=d.getMonth();const h=e.head;const v=+e.total||0;
+    (byHM[h]=byHM[h]||Array(12).fill(0))[m]+=v;rowTot[h]=(rowTot[h]||0)+v;monTot[m]+=v;grand+=v;});
+  return {byHM,rowTot,monTot,grand};
+}
+function yearTotalExp(year){return STORE.read('expenses',[]).filter(e=>new Date(e.date).getFullYear()===year).reduce((a,e)=>a+(+e.total||0),0);}
 function renderExpenses(){
   const p=$('#page-expenses');const exp=STORE.read('expenses',[]);
-  const heads=STORE.read('expHeads',EXP_HEADS_DEFAULT);
-  const total=exp.reduce((a,e)=>a+(+e.total||0),0);
-  const byHead={};exp.forEach(e=>byHead[e.head]=(byHead[e.head]||0)+(+e.total||0));
+  const custom=STORE.read('expHeadsExtra',[]);const dataHeads=[...new Set(exp.map(e=>e.head))];
+  const extra=[...new Set([...custom,...dataHeads])].filter(h=>h&&!OPEX_HEADS.includes(h));
+  const heads=[...OPEX_HEADS,...extra];opexRows=heads;
+  const expYears=[...new Set(exp.map(e=>new Date(e.date).getFullYear()))];
+  const yearOpts=[...new Set([...YEARS,...expYears,new Date().getFullYear()])].sort((a,b)=>a-b);
+  if(opexYear==null||!yearOpts.includes(opexYear))opexYear=yearOpts.includes(refYear())?refYear():yearOpts[yearOpts.length-1];
+  const year=opexYear;
+  const {byHM,rowTot,monTot,grand}=computeExp(year);
+  const yearTotals={};yearOpts.forEach(y=>yearTotals[y]=yearTotalExp(y));
+  const lbl='font-size:10px;text-transform:uppercase;letter-spacing:.05em;color:var(--neutral);font-weight:600;display:block;margin-bottom:6px';
+  const kpiCards=yearOpts.map(y=>`<div class="kpi" ${y===year?'style="outline:2px solid var(--accent);outline-offset:-1px"':''}><div class="accent-bar"></div><div class="lab">Total ${y}</div><div class="val" style="font-size:19px" id="yk${y}">${AED2(yearTotals[y])}</div><span class="delta flat">${y===year?'selected year':'&nbsp;'}</span></div>`).join('');
+  let mt='<div class="tablescroll"><table class="opx"><thead><tr><th style="text-align:left;min-width:230px">Expense Head</th>'+MON.map(m=>`<th class="num">${m}</th>`).join('')+'<th class="num">Total</th></tr></thead><tbody>';
+  heads.forEach((hh,hi)=>{const row=byHM[hh]||Array(12).fill(0);
+    mt+=`<tr><td style="text-align:left"><div style="display:flex;align-items:center;gap:8px;justify-content:space-between"><span>${hh}</span><button class="btn sm" data-fill="${hi}" title="Copy first entered value to all 12 months">⇊ fill</button></div></td>`+
+      MON.map((_,m)=>`<td class="num"><input class="opxcell" type="number" step="0.01" data-h="${hi}" data-m="${m}" value="${row[m]?row[m]:''}" placeholder="0"></td>`).join('')+
+      `<td class="num"><b id="rt${hi}">${AED2(rowTot[hh]||0)}</b></td></tr>`;});
+  mt+='</tbody><tfoot><tr style="font-weight:700;border-top:2px solid var(--line)"><td style="text-align:left">Monthly Total</td>'+MON.map((_,m)=>`<td class="num" id="mt${m}">${AED2(monTot[m])}</td>`).join('')+`<td class="num" id="gt">${AED2(grand)}</td></tr></tfoot></table></div>`;
   p.innerHTML=`
-   <div class="pagehead"><h2>Operational Expenses</h2><p>Editable expense ledger. Every record flows into the P&amp;L and Cash Flow modules. Stored in your browser.</p></div>
-   <div class="subgrid" style="margin-bottom:16px">
-     <div class="stat"><div class="l">Total Recorded</div><div class="v">${AED2(total)}</div></div>
-     <div class="stat"><div class="l">Records</div><div class="v">${exp.length}</div></div>
-     <div class="stat"><div class="l">Expense Heads</div><div class="v">${heads.length}</div></div>
-     <div class="stat"><div class="l">This Year</div><div class="v">${AED2(exp.filter(e=>new Date(e.date).getFullYear()===refYear()).reduce((a,e)=>a+(+e.total||0),0))}</div></div>
+   <div class="pagehead"><h2>Operational Expenses</h2><p>Enter each expense head month by month for the selected year. Figures flow straight into the P&amp;L. Stored in your browser.</p></div>
+   <div style="display:flex;gap:16px;flex-wrap:wrap;align-items:flex-end;margin-bottom:16px">
+     <div><label style="${lbl}">Year</label><select id="opexYear" style="padding:8px 12px;border:1px solid var(--line);border-radius:8px;background:var(--panel);color:var(--ink);font-weight:600">${yearOpts.map(y=>`<option ${y===year?'selected':''}>${y}</option>`).join('')}</select></div>
+     <button class="btn" onclick="headForm()">+ Add / Manage Heads</button>
    </div>
-   <div style="display:flex;gap:8px;margin-bottom:14px"><button class="btn pri" onclick="expForm()">+ Add Expense</button><button class="btn" onclick="headForm()">Manage Heads</button></div>
-   ${exp.length?`<div class="grid g2" style="margin-bottom:16px">
-     <div class="card"><div class="head"><h3>By Expense Head</h3></div><div class="body"><div class="chart-wrap sm"><canvas id="cExpHead"></canvas></div></div></div>
-     <div class="card"><div class="head"><h3>Monthly Trend</h3></div><div class="body"><div class="chart-wrap sm"><canvas id="cExpMonth"></canvas></div></div></div></div>`:''}
-   <div class="card"><div class="head"><h3>Expense Records</h3></div><div class="body pad0">${exp.length?expTable(exp):emptyState('▦','No expenses yet','Add your operational costs — rent, salaries, utilities, bank charges, licences. They power the P&L and cash-flow runway.','Add Expense','expForm()')}</div></div>`;
-  if(exp.length){
-    const hk=Object.keys(byHead);
-    mkChart('cExpHead',{type:'bar',data:{labels:hk,datasets:[{data:hk.map(h=>byHead[h]),backgroundColor:PAL.accent(),borderRadius:4}]},options:{indexAxis:'y',maintainAspectRatio:false,plugins:{legend:{display:false},datalabels:{display:true,anchor:'end',align:'right',color:css('--ink-2'),font:{family:"'IBM Plex Mono'",size:10,weight:'600'},formatter:v=>kfmt(v)},tooltip:{callbacks:{label:c=>AED2(c.raw)}}},scales:{x:{...gridOpt(),ticks:{color:css('--ink-2'),callback:v=>(v/1e3).toFixed(0)+'K'}},y:gridOpt()}}});
-    const mm={};exp.forEach(e=>{const k=e.date.slice(0,7);mm[k]=(mm[k]||0)+(+e.total||0);});const mk=Object.keys(mm).sort();
-    mkChart('cExpMonth',{type:'line',data:{labels:mk,datasets:[{data:mk.map(k=>mm[k]),borderColor:PAL.gold(),backgroundColor:'transparent',tension:.3,pointRadius:2}]},options:{maintainAspectRatio:false,plugins:{legend:{display:false},tooltip:{callbacks:{label:c=>AED2(c.raw)}}},scales:{y:{...gridOpt(),ticks:{color:css('--ink-2'),callback:v=>(v/1e3).toFixed(0)+'K'}},x:gridOpt()}}});
+   <div class="kpigrid">${kpiCards}</div>
+   <div class="card" style="margin-bottom:16px"><div class="head"><h3><span class="hic">${SVG.receipt}</span>Monthly Expense Matrix — ${year}</h3><span class="hint">click a cell to type · ⇊ fill copies a value across all months</span></div><div class="body pad0">${mt}</div></div>
+   <div class="card" style="margin-bottom:16px"><div class="head"><h3><span class="hic">${SVG.chart}</span>Total Expenses by Year</h3></div><div class="body"><div class="chart-wrap sm"><canvas id="cExpYear"></canvas></div></div></div>
+   <div class="card"><div class="head"><h3><span class="hic">${SVG.margin}</span>Expense Comparison by Head — ${year} vs ${year-1}</h3><span class="hint">which heads moved year over year</span></div><div class="body"><div class="chart-wrap" style="height:${Math.max(320,heads.length*26)}px"><canvas id="cExpCmp"></canvas></div></div></div>`;
+
+  const ys=$('#opexYear');ys.onchange=()=>{opexYear=+ys.value;renderExpenses();};
+  const tbl=p.querySelector('table.opx');
+  tbl.addEventListener('change',e=>{const inp=e.target.closest('input.opxcell');if(inp)setCell(+inp.dataset.h,+inp.dataset.m,inp.value);});
+  tbl.addEventListener('click',e=>{const b=e.target.closest('[data-fill]');if(b)fillRow(+b.dataset.fill);});
+  function setCell(hi,m,val){const head=heads[hi];const v=parseFloat(val)||0;let ex=STORE.read('expenses',[]);
+    ex=ex.filter(x=>!(x.head===head&&new Date(x.date).getFullYear()===year&&new Date(x.date).getMonth()===m));
+    if(v>0)ex.push({id:'e'+Date.now()+'_'+hi+'_'+m,date:`${year}-${String(m+1).padStart(2,'0')}-15`,head,total:v,amount:v,vat:0,matrix:true});
+    STORE.write('expenses',ex);refresh();}
+  function fillRow(hi){const head=heads[hi];const inputs=[...tbl.querySelectorAll('input.opxcell[data-h="'+hi+'"]')];
+    const first=inputs.map(i=>parseFloat(i.value)||0).find(v=>v>0)||0;if(first<=0){toast('Type a value in one month first','warn');return;}
+    let ex=STORE.read('expenses',[]);ex=ex.filter(x=>!(x.head===head&&new Date(x.date).getFullYear()===year));
+    for(let m=0;m<12;m++)ex.push({id:'e'+Date.now()+'_'+hi+'_'+m,date:`${year}-${String(m+1).padStart(2,'0')}-15`,head,total:first,amount:first,vat:0,matrix:true});
+    STORE.write('expenses',ex);inputs.forEach(i=>i.value=first);refresh();toast('Applied to all 12 months','ok');}
+  function refresh(){const c=computeExp(year);heads.forEach((hh,hi)=>{const el=document.getElementById('rt'+hi);if(el)el.textContent=AED2(c.rowTot[hh]||0);});
+    for(let m=0;m<12;m++){const el=document.getElementById('mt'+m);if(el)el.textContent=AED2(c.monTot[m]);}
+    const g=document.getElementById('gt');if(g)g.textContent=AED2(c.grand);
+    const yk=document.getElementById('yk'+year);if(yk)yk.textContent=AED2(yearTotalExp(year));drawExpCharts();}
+  function drawExpCharts(){
+    mkChart('cExpYear',{type:'bar',data:{labels:yearOpts.map(String),datasets:[{data:yearOpts.map(y=>yearTotalExp(y)),backgroundColor:yearOpts.map(y=>y===opexYear?PAL.accent():css('--accent-soft')),borderColor:PAL.accent(),borderWidth:1,borderRadius:5}]},
+      options:{maintainAspectRatio:false,layout:{padding:{top:20}},plugins:{legend:{display:false},datalabels:{display:c=>c.dataset.data[c.dataIndex]>0,anchor:'end',align:'end',color:css('--ink-2'),font:{family:"'IBM Plex Mono'",size:10,weight:'700'},formatter:v=>v?kfmt(v):''},tooltip:{callbacks:{label:c=>AED2(c.raw)}}},scales:{y:{...gridOpt(),ticks:{color:css('--ink-2'),callback:v=>kfmt(v)}},x:gridOpt()}}});
+    const cur=computeExp(opexYear).rowTot,pr=computeExp(opexYear-1).rowTot;
+    const hs=heads.slice().sort((a,b)=>(cur[b]||0)-(cur[a]||0));
+    mkChart('cExpCmp',{type:'bar',data:{labels:hs,datasets:[
+      {label:String(opexYear),data:hs.map(h=>cur[h]||0),backgroundColor:PAL.accent(),borderRadius:4},
+      {label:String(opexYear-1),data:hs.map(h=>pr[h]||0),backgroundColor:PAL.steel(),borderRadius:4}]},
+      options:{indexAxis:'y',maintainAspectRatio:false,plugins:{legend:{position:'top',labels:{boxWidth:12}},datalabels:{display:c=>c.dataset.data[c.dataIndex]>0,anchor:'end',align:'right',color:css('--ink-2'),font:{family:"'IBM Plex Mono'",size:9,weight:'600'},formatter:v=>v?kfmt(v):''},tooltip:{callbacks:{label:c=>c.dataset.label+': '+AED2(c.raw)}}},
+        scales:{x:{...gridOpt(),ticks:{color:css('--ink-2'),callback:v=>kfmt(v)}},y:{...gridOpt(),ticks:{color:css('--ink-2'),font:{size:10}}}}}});
   }
+  drawExpCharts();
 }
-function expTable(exp){let h='<div class="tablescroll"><table><thead><tr><th>Date</th><th>Head</th><th>Description</th><th>Vendor</th><th class="num">Amount</th><th class="num">VAT</th><th class="num">Total</th><th></th></tr></thead><tbody>';
-  exp.slice().sort((a,b)=>a.date<b.date?1:-1).forEach(e=>{h+=`<tr><td>${e.date}</td><td>${e.head}</td><td>${e.desc||''}</td><td>${e.vendor||''}</td><td class="num">${AED2(+e.amount||0)}</td><td class="num">${AED2(+e.vat||0)}</td><td class="num"><b>${AED2(+e.total||0)}</b></td><td class="num"><button class="btn sm danger" onclick="delExp('${e.id}')">✕</button></td></tr>`;});
-  return h+'</tbody></table></div>';}
-window.expForm=function(){const heads=STORE.read('expHeads',EXP_HEADS_DEFAULT);
-  openModal('Add Expense',`
-   <div class="frow"><div class="field"><label>Date</label><input type="date" id="e_date" value="${new Date().toISOString().slice(0,10)}"></div>
-   <div class="field"><label>Expense Head</label><select id="e_head">${heads.map(h=>`<option>${h}</option>`).join('')}</select></div></div>
-   <div class="frow"><div class="field full"><label>Description</label><input id="e_desc" placeholder="e.g. Etisalat business line"></div></div>
-   <div class="frow"><div class="field"><label>Vendor / Payee</label><input id="e_vendor"></div><div class="field"><label>Payment Mode</label><select id="e_mode"><option>Bank Transfer</option><option>Cash</option><option>Card</option><option>Cheque</option></select></div></div>
-   <div class="frow"><div class="field"><label>Amount (excl. VAT)</label><input type="number" id="e_amount" step="0.01" oninput="e_calc()"></div><div class="field"><label>VAT (5%)</label><input type="number" id="e_vat" step="0.01"></div></div>
-   <div class="frow"><div class="field full"><label>Total</label><input type="number" id="e_total" step="0.01" readonly style="background:var(--line-2)"></div></div>`,
-   ()=>{const total=(+$('#e_amount').value||0)+(+$('#e_vat').value||0);const rec={id:'e'+Date.now(),date:$('#e_date').value,head:$('#e_head').value,desc:$('#e_desc').value,vendor:$('#e_vendor').value,mode:$('#e_mode').value,amount:+$('#e_amount').value||0,vat:+$('#e_vat').value||0,total};
-     const exp=STORE.read('expenses',[]);exp.push(rec);STORE.write('expenses',exp);closeModal();renderExpenses();toast('Expense saved · flows to P&L','ok');});
-  setTimeout(()=>{window.e_calc=()=>{const a=+$('#e_amount').value||0;$('#e_vat').value=(a*0.05).toFixed(2);$('#e_total').value=(a*1.05).toFixed(2);};},30);};
-window.delExp=function(id){confirmAction('Delete this expense record?',()=>{let exp=STORE.read('expenses',[]);exp=exp.filter(e=>e.id!==id);STORE.write('expenses',exp);renderExpenses();toast('Deleted');});};
-window.headForm=function(){const heads=STORE.read('expHeads',EXP_HEADS_DEFAULT);
-  openModal('Expense Heads',`<div class="field full"><label>Add new head</label><div style="display:flex;gap:8px"><input id="newHead" placeholder="e.g. Marketing" style="flex:1;padding:8px 10px;border:1px solid var(--line);border-radius:7px;background:var(--panel-2);color:var(--ink)"><button class="btn pri" onclick="addHead()">Add</button></div></div>
-   <div style="margin-top:14px" id="headList">${heads.map(h=>`<div style="display:flex;justify-content:space-between;padding:8px 0;border-bottom:1px solid var(--line-2)"><span>${h}</span></div>`).join('')}</div>`,null,'Close');
-  window.addHead=()=>{const v=$('#newHead').value.trim();if(!v)return;const h=STORE.read('expHeads',EXP_HEADS_DEFAULT);if(!h.includes(v))h.push(v);STORE.write('expHeads',h);closeModal();toast('Head added','ok');};};
+window.headForm=function(){const extra=STORE.read('expHeadsExtra',[]);
+  openModal('Add / Manage Expense Heads',`<div class="field full"><label>Add a new head</label><div style="display:flex;gap:8px"><input id="newHead" placeholder="e.g. Warehouse Rent" style="flex:1;padding:8px 10px;border:1px solid var(--line);border-radius:7px;background:var(--panel-2);color:var(--ink)"><button class="btn pri" onclick="addHead()">Add</button></div></div>
+   <div style="margin-top:14px"><div style="${'font-size:10px;text-transform:uppercase;letter-spacing:.05em;color:var(--neutral);font-weight:600;margin-bottom:6px'}">Custom heads</div><div id="headList">${extra.length?extra.map((h,i)=>`<div style="display:flex;justify-content:space-between;align-items:center;padding:7px 0;border-bottom:1px solid var(--line-2)"><span>${h}</span><button class="btn sm danger" onclick="rmHead(${i})">✕</button></div>`).join(''):'<span style="color:var(--neutral);font-size:12px">None yet — the 20 standard heads are always shown.</span>'}</div></div>`,null,'Close');
+  window.addHead=()=>{const v=$('#newHead').value.trim();if(!v)return;const e=STORE.read('expHeadsExtra',[]);if(!e.includes(v)&&!OPEX_HEADS.includes(v))e.push(v);STORE.write('expHeadsExtra',e);closeModal();renderExpenses();toast('Head added','ok');};
+  window.rmHead=(i)=>{const e=STORE.read('expHeadsExtra',[]);e.splice(i,1);STORE.write('expHeadsExtra',e);closeModal();renderExpenses();toast('Head removed');};};
 
 /* ============================================================
    PAGE: BANKS  (accounts grouped by type, manual balances, subtotals)
@@ -1385,7 +1420,7 @@ function emptyState(ico,h,p,btn,fn){return `<div class="empty"><div class="ico">
 /* ============================================================
    NAV + RENDER
    ============================================================ */
-const TITLES={exec:['Dashboard','Company-wide sales & profitability'],customers:['Customer Analysis','Per-customer performance & YoY'],salespeople:['Salesperson Performance','Rep leaderboard & margin quality'],quarter:['Quarterly Comparison','Compare Q1–Q4 across years'],onboard:['New Customer Onboard','Newly onboarded customers by period'],dormant:['Dormant Customers','Customers who have gone quiet'],pnl:['Profit & Loss','Dynamic P&L from live data'],assets:['Fixed Assets & Liabilities','Assets, depreciation & liabilities'],expenses:['Operational Expenses','Editable cost ledger'],banks:['Bank Management','Balances & daily ledger'],cashflow:['Cash Flow Control','Receivables, payables & upcoming expenses']};
+const TITLES={exec:['Dashboard','Company-wide sales & profitability'],customers:['Customer Analysis','Per-customer performance & YoY'],salespeople:['Salesperson Performance','Rep leaderboard & margin quality'],quarter:['Quarterly Comparison','Compare Q1–Q4 across years'],onboard:['New Customer Onboard','Newly onboarded customers by period'],dormant:['Dormant Customers','Customers who have gone quiet'],pnl:['Profit & Loss','Dynamic P&L from live data'],assets:['Fixed Assets & Liabilities','Assets, depreciation & liabilities'],expenses:['Operational Expenses','Month-by-month expense matrix'],banks:['Bank Management','Balances & daily ledger'],cashflow:['Cash Flow Control','Receivables, payables & upcoming expenses']};
 let currentPage='exec';
 function navigate(page){currentPage=page;
   document.querySelectorAll('.nav a').forEach(a=>a.classList.toggle('active',a.dataset.page===page));
