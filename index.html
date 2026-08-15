@@ -302,7 +302,11 @@ body{background:
     <div class="topbar">
       <button class="iconbtn menu-btn" onclick="document.getElementById('side').classList.toggle('open')">☰</button>
       <div class="title" id="pageTitle">Dashboard<small id="pageSub">Company-wide sales & profitability</small></div>
-      <button class="btn sm" id="exportBtn">⭳ Export</button>
+      <input type="file" id="upInput" accept=".xlsx,.xls" hidden>
+      <input type="file" id="upJsonInput" accept=".json,application/json" hidden>
+      <button class="btn sm pri" id="upBtnTop" title="Upload a filled master Excel to update every tab">⭱ Upload Excel</button>
+      <button class="btn sm" id="dlJsonTop" title="Download all dashboard data as data.json for your repo">⬇ data.json</button>
+      <button class="btn sm" id="dlXlsxTop" title="Download the master Excel (all tabs) to fill in">⬇ Sample Excel</button>
       <button class="iconbtn" id="themeBtn" title="Toggle theme">◐</button>
     </div>
 
@@ -1436,14 +1440,59 @@ function parseWorkbook(arrayBuffer, filename){
     meta:{source:filename,generated:new Date().toISOString().slice(0,16).replace('T',' '),record_count:rows.length,
       date_min:isos[0]||'',date_max:isos[isos.length-1]||'',total_revenue:+sum('amt').toFixed(2),total_cost:+sum('cost').toFixed(2),total_profit:+sum('profit').toFixed(2)}};
 }
+function parseManualSheets(arrayBuffer){
+  const wb=XLSX.read(arrayBuffer,{type:'array',cellDates:true});
+  const man={};
+  const sheet=name=>{const n=wb.SheetNames.find(s=>s.toLowerCase()===name.toLowerCase());return n?XLSX.utils.sheet_to_json(wb.Sheets[n],{defval:''}):null;};
+  const nnum=v=>{const n=parseFloat(String(v).replace(/,/g,''));return isFinite(n)?n:0;};
+  const iso=v=>{if(v instanceof Date&&!isNaN(v))return new Date(v.getTime()-v.getTimezoneOffset()*60000).toISOString().slice(0,10);if(typeof v==='number'&&isFinite(v))return new Date(Date.UTC(1899,11,30)+Math.round(v)*86400000).toISOString().slice(0,10);if(v){const d=new Date(v);if(!isNaN(d))return d.toISOString().slice(0,10);}return '';};
+  const uid=p=>p+Date.now()+Math.floor(Math.random()*1e6);
+  let s;
+  // Banks
+  s=sheet('Banks');
+  if(s){const banks=[];s.forEach((r,i)=>{const name=String(r['Account']||r['Bank']||'').trim();if(!name)return;let cat=String(r['Type']||r['Category']||'other').trim().toLowerCase();if(cat==='banks')cat='bank';if(cat==='petty cash')cat='petty';banks.push({id:'bk'+i,name,cat:cat||'other',balance:nnum(r['Balance']||r['Balance (AED)']),note:String(r['Note']||'')});});if(banks.length){man.banks=JSON.stringify(banks);man.banksV2='true';}}
+  // Operating Expenses (matrix Year, Head, Jan..Dec) — or ledger fallback
+  s=sheet('Operating Expenses');
+  if(s){const exp=[];s.forEach(r=>{const y=parseInt(r['Year']);const head=String(r['Expense Head']||r['Head']||'').trim();if(!y||!head)return;MON.forEach((mn,mi)=>{const v=nnum(r[mn]);if(v>0)exp.push({id:uid('e'),date:y+'-'+String(mi+1).padStart(2,'0')+'-15',head,total:v,amount:v,matrix:true});});});
+    if(!exp.length)s.forEach(r=>{const d=iso(r['Date']);const head=String(r['Head']||r['Expense Head']||'').trim();const v=nnum(r['Amount']||r['Amount (AED)']);if(d&&head&&v)exp.push({id:uid('e'),date:d,head,total:v,amount:v});});
+    if(exp.length)man.expenses=JSON.stringify(exp);}
+  // Corporate Tax
+  s=sheet('Corporate Tax');
+  if(s){const ct={};s.forEach(r=>{const y=parseInt(r['Year']);const v=nnum(r['Corporate Tax']||r['Corporate Tax (AED)']||r['Amount']);if(y)ct[y]=v;});if(Object.keys(ct).length)man.corpTax=JSON.stringify(ct);}
+  // Assets
+  const aByName={};
+  s=sheet('Assets');
+  if(s){const assets=[];s.forEach((r,i)=>{const name=String(r['Asset']||'').trim();if(!name)return;const aid='a'+i+'_'+Date.now();aByName[name.toLowerCase()]=aid;assets.push({id:aid,name,cat:String(r['Category']||'Fixed Asset').trim(),date:iso(r['Acquired']||r['Date']),cost:nnum(r['Cost']||r['Cost (AED)']),note:String(r['Note']||'')});});if(assets.length){man.assets=JSON.stringify(assets);man.assetMovesV1='true';}}
+  // Asset Movements
+  s=sheet('Asset Movements');
+  if(s){const mv=[];s.forEach(r=>{const an=String(r['Asset']||'').trim().toLowerCase();const type=String(r['Type']||'').trim().toLowerCase();const v=nnum(r['Amount']||r['Amount (AED)']);const aid=aByName[an];if(aid&&['depreciation','interest','return'].includes(type)&&v)mv.push({id:uid('m'),assetId:aid,type,date:iso(r['Date']),amount:v,note:String(r['Note']||'')});});if(mv.length)man.assetMoves=JSON.stringify(mv);}
+  // Liabilities
+  const lByName={};
+  s=sheet('Liabilities');
+  if(s){const li=[];s.forEach((r,i)=>{const name=String(r['Liability']||'').trim();if(!name)return;const lid='l'+i+'_'+Date.now();lByName[name.toLowerCase()]=lid;li.push({id:lid,name,cat:String(r['Category']||'Loan').trim(),date:iso(r['Date']),amount:nnum(r['Amount']||r['Amount (AED)']),note:String(r['Note']||'')});});if(li.length)man.liabilities=JSON.stringify(li);}
+  // Liability Movements
+  s=sheet('Liability Movements');
+  if(s){const mv=[];s.forEach(r=>{const ln=String(r['Liability']||'').trim().toLowerCase();const type=String(r['Type']||'').trim().toLowerCase();const v=nnum(r['Amount']||r['Amount (AED)']);const lid=lByName[ln];if(lid&&['payment','return'].includes(type)&&v)mv.push({id:uid('lm'),liabId:lid,type,date:iso(r['Date']),amount:v,note:String(r['Note']||'')});});if(mv.length)man.liabMoves=JSON.stringify(mv);}
+  // Cash Flow (rpFig)
+  s=sheet('Cash Flow')||sheet('Receivables & Payables');
+  if(s){const kbl={'local receivable':'local_rec','oversea receivable':'oversea_rec','overseas receivable':'oversea_rec','local payable':'local_pay','oversea payable':'oversea_pay','overseas payable':'oversea_pay'};const rp={local_rec:{a:0,n:''},oversea_rec:{a:0,n:''},local_pay:{a:0,n:''},oversea_pay:{a:0,n:''}};let any=false;s.forEach(r=>{const k=kbl[String(r['Category']||'').trim().toLowerCase()];if(k){rp[k]={a:nnum(r['Amount']||r['Amount (AED)']),n:String(r['Note']||'')};any=true;}});if(any)man.rpFig=JSON.stringify(rp);}
+  // Upcoming Expenses
+  s=sheet('Upcoming Expenses');
+  if(s){const up=[];s.forEach(r=>{let m=String(r['Month']||'').trim();const d=iso(r['Date']);if(!m&&d)m=d.slice(0,7);const desc=String(r['Description']||r['Desc']||'').trim();const v=nnum(r['Amount']||r['Amount (AED)']);if((m||d)&&v)up.push({id:uid('u'),month:m||(d?d.slice(0,7):''),date:d,desc,amount:v,note:String(r['Note']||'')});});if(up.length)man.upcoming=JSON.stringify(up);}
+  return man;
+}
 function handleUpload(file){
   if(typeof XLSX==='undefined'){toast('Excel reader needs an internet connection','warn');return;}
   const rd=new FileReader();
   rd.onload=()=>{try{
     const payload=parseWorkbook(rd.result,file.name);
-    localStorage.setItem('fc_userData',JSON.stringify(payload));try{localStorage.setItem('fc_justUploaded','1');if(ghCfg())localStorage.setItem('fc_publishAfterBoot','1');}catch(e){}
-    toast('Loaded '+num(payload.meta.record_count)+' rows — refreshing…','ok');
-    setTimeout(()=>location.reload(),700);
+    localStorage.setItem('fc_userData',JSON.stringify(payload));
+    let man={};try{man=parseManualSheets(rd.result);}catch(e){console.error(e);}
+    Object.keys(man).forEach(k=>{try{localStorage.setItem('fc_'+k,man[k]);}catch(e){}});
+    try{localStorage.setItem('fc_justUploaded','1');if(Object.keys(man).length)localStorage.setItem('fc_dirty','1');}catch(e){}
+    const extra=Object.keys(man).filter(k=>k!=='banksV2'&&k!=='assetMovesV1').length;
+    toast('Loaded '+num(payload.meta.record_count)+' invoices'+(extra?(' + '+extra+' tab(s) of manual data'):'')+' — refreshing…','ok');
+    setTimeout(()=>location.reload(),800);
   }catch(e){toast('Upload failed: '+e.message,'warn');console.error(e);}};
   rd.onerror=()=>toast('Could not read the file','warn');
   rd.readAsArrayBuffer(file);
@@ -1513,9 +1562,12 @@ window.ghDisconnect=function(){localStorage.removeItem('fc_gh');closeModal();ren
 function handleUploadJson(file){
   const rd=new FileReader();
   rd.onload=()=>{try{const j=JSON.parse(rd.result);
-    if(!j||!j.rows||!j.customers)throw new Error('not a Finance Control data.json');
-    localStorage.setItem('fc_userData',JSON.stringify(j));
-    try{localStorage.setItem('fc_justUploaded','1');if(ghCfg())localStorage.setItem('fc_publishAfterBoot','1');}catch(e){}
+    let sales=j,manual=null;
+    if(j&&j.sales){sales=j.sales;manual=j.manual||null;}
+    if(!sales||!sales.rows||!sales.customers)throw new Error('not a Finance Control data.json');
+    localStorage.setItem('fc_userData',JSON.stringify(sales));
+    if(manual){Object.keys(manual).forEach(k=>{try{localStorage.setItem('fc_'+k,manual[k]);}catch(e){}});}
+    try{localStorage.setItem('fc_justUploaded','1');if(manual)localStorage.setItem('fc_dirty','1');}catch(e){}
     toast('data.json loaded — refreshing…','ok');setTimeout(()=>location.reload(),700);
   }catch(e){toast('Invalid data.json: '+e.message,'warn');}};
   rd.readAsText(file);
@@ -1542,28 +1594,48 @@ function exportLiveHTML(){
     toast('Live dashboard exported — send this one file, it opens with your data','ok');
   }catch(e){toast('Export failed: '+e.message,'warn');console.error(e);}
 }
+function buildAllData(){return {__fc__:1,generated:new Date().toISOString().slice(0,16).replace('T',' '),sales:DB,manual:manualSnapshot().keys};}
+function exportAllDataJson(){
+  try{const blob=new Blob([JSON.stringify(buildAllData())],{type:'application/json'});dlBlob(blob,'data.json');
+    toast('data.json downloaded — upload it to your repo and the live link updates','ok');}
+  catch(e){toast('Export failed: '+e.message,'warn');}
+}
 function exportAllExcel(){
   if(typeof XLSX==='undefined'){toast('Excel export needs an internet connection','warn');return;}
   try{
     const wb=XLSX.utils.book_new();
-    const add=(name,rows)=>{if(rows&&rows.length){XLSX.utils.book_append_sheet(wb,XLSX.utils.json_to_sheet(rows),name.slice(0,31));}};
-    add('Sales by Year',YEARS.map(y=>{const g=agg(rowsForYear(y));return {Year:y,Sales:g.rev,COGS:g.cost,'Gross Profit':g.pf,'Gross Margin %':+(g.gp*100).toFixed(2),Invoices:g.inv};}));
-    add('Banks',STORE.read('banks',[]).map(b=>({Account:b.name,Type:b.cat,'Balance (AED)':+b.balance||0,Note:b.note||''})));
-    add('Assets',STORE.read('assets',[]).map(a=>({Asset:a.name,Category:a.cat,Acquired:a.date,'Cost (AED)':+a.cost||0,Note:a.note||''})));
-    const _as=STORE.read('assets',[]);add('Asset Movements',STORE.read('assetMoves',[]).map(m=>({Asset:(_as.find(x=>x.id===m.assetId)||{}).name||m.assetId,Type:m.type,Date:m.date,'Amount (AED)':+m.amount||0,Note:m.note||''})));
-    add('Liabilities',STORE.read('liabilities',[]).map(l=>({Liability:l.name,Category:l.cat,Date:l.date,'Amount (AED)':+l.amount||0,Note:l.note||''})));
-    const _li=STORE.read('liabilities',[]);add('Liability Movements',STORE.read('liabMoves',[]).map(m=>({Liability:(_li.find(x=>x.id===m.liabId)||{}).name||m.liabId,Type:m.type,Date:m.date,'Amount (AED)':+m.amount||0,Note:m.note||''})));
-    add('Operating Expenses',STORE.read('expenses',[]).map(e=>({Date:e.date,Head:e.head,'Amount (AED)':+e.total||0})));
-    const ct=STORE.read('corpTax',{});add('Corporate Tax',Object.keys(ct).map(y=>({Year:+y,'Corporate Tax (AED)':+ct[y]||0})));
-    const rpLab={local_rec:'Local Receivable',oversea_rec:'Oversea Receivable',local_pay:'Local Payable',oversea_pay:'Oversea Payable'};
-    const rp=STORE.read('rpFig',{});add('Receivables & Payables',Object.keys(rp).map(k=>({Category:rpLab[k]||k,'Amount (AED)':+rp[k].a||0,Note:rp[k].n||''})));
-    add('Upcoming Expenses',STORE.read('upcoming',[]).map(u=>({Month:u.month,Date:u.date||'',Description:u.desc||'','Amount (AED)':+u.amount||0,Note:u.note||''})));
-    if(!wb.SheetNames.length)XLSX.utils.book_append_sheet(wb,XLSX.utils.aoa_to_sheet([['No manual data entered yet.']]),'Info');
-    XLSX.writeFile(wb,'finance-control-backup.xlsx');
-    toast('All dashboard data exported to Excel','ok');
+    const add=(name,rows)=>{XLSX.utils.book_append_sheet(wb,XLSX.utils.json_to_sheet(rows&&rows.length?rows:[{}]),name.slice(0,31));};
+    // 1) Input Data — the sales rows (same format as the sales template, re-uploadable)
+    add('Input Data',ROWS.map(r=>({'Invoice#':r[I.inv],'Invoice Date':r[I.date],'Customer Name':CUST[r[I.c]],'Quarter':r[I.q],'Month':MON[r[I.mo]],'Years':r[I.yr],'Mode':MODES[r[I.m]],'Invoice Amount':r[I.rev],'Cost':r[I.cost],'Sales Person':SP[r[I.s]]})));
+    // 2) Banks
+    add('Banks',STORE.read('banks',[]).map(b=>({Account:b.name,Type:b.cat,Balance:+b.balance||0,Note:b.note||''})));
+    // 3) Operating Expenses — matrix: Year, Head, Jan..Dec
+    const _exp=STORE.read('expenses',[]);const _ce=STORE.read('expHeadsExtra',[]);
+    const _dh=[...new Set(_exp.map(e=>e.head))];const _extra=[...new Set([..._ce,..._dh])].filter(h=>h&&!OPEX_HEADS.includes(h));
+    const _heads=[...OPEX_HEADS,..._extra];const _eYears=[...new Set([...YEARS,..._exp.map(e=>new Date(e.date).getFullYear())])].sort((a,b)=>a-b);
+    const opexRowsX=[];_eYears.forEach(y=>{const c=computeExp(y);_heads.forEach(h=>{const mo=c.byHM[h]||Array(12).fill(0);const row={Year:y,'Expense Head':h};MON.forEach((mn,mi)=>row[mn]=mo[mi]||0);opexRowsX.push(row);});});
+    add('Operating Expenses',opexRowsX);
+    // 4) Corporate Tax
+    const ct=STORE.read('corpTax',{});const ctYears=[...new Set([...YEARS,...Object.keys(ct).map(Number)])].sort((a,b)=>a-b);
+    add('Corporate Tax',ctYears.map(y=>({Year:y,'Corporate Tax':+ct[y]||0})));
+    // 5) Assets
+    add('Assets',STORE.read('assets',[]).map(a=>({Asset:a.name,Category:a.cat,Acquired:a.date,Cost:+a.cost||0,Note:a.note||''})));
+    // 6) Asset Movements
+    const _as=STORE.read('assets',[]);add('Asset Movements',STORE.read('assetMoves',[]).map(m=>({Asset:(_as.find(x=>x.id===m.assetId)||{}).name||'',Type:m.type,Date:m.date,Amount:+m.amount||0,Note:m.note||''})));
+    // 7) Liabilities
+    add('Liabilities',STORE.read('liabilities',[]).map(l=>({Liability:l.name,Category:l.cat,Date:l.date,Amount:+l.amount||0,Note:l.note||''})));
+    // 8) Liability Movements
+    const _li=STORE.read('liabilities',[]);add('Liability Movements',STORE.read('liabMoves',[]).map(m=>({Liability:(_li.find(x=>x.id===m.liabId)||{}).name||'',Type:m.type,Date:m.date,Amount:+m.amount||0,Note:m.note||''})));
+    // 9) Cash Flow — 4 category figures
+    const rp=STORE.read('rpFig',{});const rpLab=[['Local Receivable','local_rec'],['Oversea Receivable','oversea_rec'],['Local Payable','local_pay'],['Oversea Payable','oversea_pay']];
+    add('Cash Flow',rpLab.map(([lab,k])=>({Category:lab,Amount:+((rp[k]||{}).a)||0,Note:(rp[k]||{}).n||''})));
+    // 10) Upcoming Expenses
+    add('Upcoming Expenses',STORE.read('upcoming',[]).map(u=>({Month:u.month,Date:u.date||'',Description:u.desc||'',Amount:+u.amount||0,Note:u.note||''})));
+    XLSX.writeFile(wb,'Dashboard_Master.xlsx');
+    toast('Master Excel (all tabs) downloaded — fill it and upload to update the dashboard','ok');
   }catch(e){toast('Export failed: '+e.message,'warn');console.error(e);}
 }
-window.exportDataJson=exportDataJson;window.exportLiveHTML=exportLiveHTML;window.exportAllExcel=exportAllExcel;
+window.exportDataJson=exportDataJson;window.exportAllDataJson=exportAllDataJson;window.exportLiveHTML=exportLiveHTML;window.exportAllExcel=exportAllExcel;
 function backupModal(){
   const g=ghCfg();
   const ghBlock=g
@@ -1590,23 +1662,13 @@ function backupModal(){
 }
 window.backupModal=backupModal;
 function renderFoot(){
-  const usingUser=!!(function(){try{return localStorage.getItem('fc_userData');}catch(e){return null;}})();
   $('#foot').innerHTML=`
     <div class="foot-meta">
       <div class="fr"><span>Data range</span><b>${DB.meta.date_min||'—'} → ${DB.meta.date_max||'—'}</b></div>
       <div class="fr"><span>File</span><b class="ell" title="${DB.meta.source||''}">${DB.meta.source||'—'}</b></div>
       <div class="fr"><span>Last updated</span><b>${DB.meta.generated||'—'}</b></div>
     </div>
-    <button class="btn sm pri" id="upBtn" style="width:100%;margin-top:10px;justify-content:center">⭱ Upload Excel</button>
-    <input type="file" id="upInput" accept=".xlsx,.xls" hidden>
-    <input type="file" id="upJsonInput" accept=".json,application/json" hidden>
-    <button class="btn sm" id="bkBtn" style="width:100%;margin-top:6px;justify-content:center">⇩ Backup / Share</button>
-    <div id="ghFoot"></div>`;
-  $('#upBtn').onclick=()=>$('#upInput').click();
-  $('#upInput').onchange=e=>{const f=e.target.files[0];if(f)handleUpload(f);};
-  $('#upJsonInput').onchange=e=>{const f=e.target.files[0];if(f)handleUploadJson(f);};
-  $('#bkBtn').onclick=backupModal;$('#bkBtn').title='Backup, share or connect GitHub';
-  updatePublishState();
+    <p style="font-size:10.5px;color:var(--neutral);margin:12px 2px 0;line-height:1.5">Use <b>Upload Excel</b> (top) to load a filled master file, <b>data.json</b> to download all-tabs data for your repo, and <b>Sample Excel</b> for the fill-in template.</p>`;
 }
 
 /* ============================================================
@@ -1651,7 +1713,11 @@ function render(){
   else if(currentPage==='cashflow')renderCashflow();
 }
 document.getElementById('nav').addEventListener('click',e=>{const a=e.target.closest('a');if(a)navigate(a.dataset.page);});
-$('#exportBtn').onclick=()=>{if(['exec','customers','salespeople','quarter','onboard','dormant','pnl'].includes(currentPage))currentExport();else backupData();};
+$('#upBtnTop').onclick=()=>$('#upInput').click();
+$('#upInput').onchange=e=>{const f=e.target.files[0];if(f)handleUpload(f);};
+$('#upJsonInput').onchange=e=>{const f=e.target.files[0];if(f)handleUploadJson(f);};
+$('#dlJsonTop').onclick=exportAllDataJson;
+$('#dlXlsxTop').onclick=exportAllExcel;
 $('#themeBtn').onclick=()=>{const h=document.documentElement;const dark=h.getAttribute('data-theme')==='dark';h.setAttribute('data-theme',dark?'light':'dark');STORE.write('theme',dark?'light':'dark');render();};
 
 /* ---------- boot ---------- */
@@ -1661,17 +1727,17 @@ $('#themeBtn').onclick=()=>{const h=document.documentElement;const dark=h.getAtt
   $('#foot').innerHTML='';renderFoot();
   initLogo();initFilters();navigate('exec');var bs=document.getElementById('bootScreen');if(bs)bs.style.display='none';
   _booting=false;
-  try{if(localStorage.getItem('fc_justUploaded')){localStorage.removeItem('fc_justUploaded');
-    if(localStorage.getItem('fc_publishAfterBoot')&&ghCfg()){localStorage.removeItem('fc_publishAfterBoot');setTimeout(()=>publishToGitHub(false),1000);}
-    else setTimeout(()=>toast('Data saved on this device. Connect GitHub (Backup / Share) to auto-update the live link.','ok'),900);}}catch(e){}
+  try{if(localStorage.getItem('fc_justUploaded')){localStorage.removeItem('fc_justUploaded');localStorage.removeItem('fc_publishAfterBoot');
+    setTimeout(()=>toast('Data updated on this device. Download data.json (top) and upload it to your repo to make it live.','ok'),900);}}catch(e){}
 })();
 
 } /* end startApp */
 
 /* ---- data loader: embedded snapshot → uploaded data → bundled data.json (+ manual-data.json) ---- */
 (function(){
-  function afterData(data){
+  function afterData(data,manualOverride){
     window.__DATA=data;
+    if(manualOverride){window.__REPO_MANUAL__=manualOverride;try{startApp();}catch(e){bootError('Startup error: '+e.message);console.error(e);}return;}
     fetch('./manual-data.json',{cache:'no-store'})
       .then(function(r){return r.ok?r.json():null;})
       .then(function(j){window.__REPO_MANUAL__=j;})
@@ -1689,7 +1755,7 @@ $('#themeBtn').onclick=()=>{const h=document.documentElement;const dark=h.getAtt
   if(stored){ try{ afterData(JSON.parse(stored)); return; }catch(e){ try{localStorage.removeItem('fc_userData');}catch(_){}} }
   fetch('./data.json',{cache:'no-store'})
     .then(function(r){ if(!r.ok) throw new Error('HTTP '+r.status); return r.json(); })
-    .then(function(d){ afterData(d); })
+    .then(function(d){ if(d&&d.sales){ afterData(d.sales,{_publishedAt:d.generated||'',keys:d.manual||{}}); } else { afterData(d); } })
     .catch(function(e){ bootError('Could not load data.json ('+e.message+').'); });
   function bootError(msg){
     var s=document.getElementById('bootScreen');
