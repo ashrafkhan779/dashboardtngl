@@ -1510,27 +1510,43 @@ function seedManual(repoObj){
   try{Object.keys(repoObj.keys).forEach(k=>{localStorage.setItem('fc_'+k,repoObj.keys[k]);});
     localStorage.setItem('fc_manualSyncedAt',repoObj._publishedAt||'');}catch(e){}
 }
+async function ghGetSha(base,hdr,branch){
+  try{const r=await fetch(base+'?ref='+encodeURIComponent(branch)+'&_='+Date.now(),{headers:hdr,cache:'no-store'});
+    if(r.ok){const j=await r.json();return j.sha;}}catch(e){}
+  return undefined;
+}
 async function ghPutFile(path,contentStr,message){
   const g=ghCfg();const base='https://api.github.com/repos/'+g.owner+'/'+g.repo+'/contents/'+path;
   const hdr={'Authorization':'token '+g.token,'Accept':'application/vnd.github+json'};
-  let sha;
-  try{const r=await fetch(base+'?ref='+encodeURIComponent(g.branch),{headers:hdr});if(r.ok){const j=await r.json();sha=j.sha;}}catch(e){}
-  const body={message:message,content:b64(contentStr),branch:g.branch};if(sha)body.sha=sha;
-  const res=await fetch(base,{method:'PUT',headers:hdr,body:JSON.stringify(body)});
-  if(!res.ok){let t='';try{t=(await res.json()).message||'';}catch(e){}throw new Error(res.status+' '+t);}
-  return true;
+  const content=b64(contentStr);let lastErr='conflict';
+  for(let attempt=0;attempt<5;attempt++){
+    const sha=await ghGetSha(base,hdr,g.branch);           // always fetch the CURRENT sha, uncached
+    const body={message:message,content:content,branch:g.branch};if(sha)body.sha=sha;
+    const res=await fetch(base,{method:'PUT',headers:hdr,body:JSON.stringify(body),cache:'no-store'});
+    if(res.ok)return true;
+    let msg='';try{msg=(await res.json()).message||'';}catch(e){}
+    lastErr=res.status+' '+msg;
+    // 409 / 422 = the sha we sent is stale → re-read the latest sha and try again
+    if(res.status===409||res.status===422){await new Promise(r=>setTimeout(r,350*(attempt+1)));continue;}
+    throw new Error(lastErr);
+  }
+  throw new Error(lastErr);
 }
+let _publishing=false,_publishQueued=false;
 async function publishToGitHub(silent){
   const g=ghCfg();if(!g){toast('Connect GitHub first using the top-bar Connect GitHub button','warn');return false;}
+  if(_publishing){_publishQueued=true;return false;}   // never run two publishes at once
+  _publishing=true;
   const btn=document.getElementById('pubBtn');if(btn){btn.disabled=true;btn.textContent='Publishing…';}
   try{
     await ghPutFile(g.path||'data.json',JSON.stringify(DB),'Update data.json via dashboard');
     await ghPutFile(g.manualPath||'manual-data.json',JSON.stringify(manualSnapshot()),'Update manual data via dashboard');
-    try{localStorage.setItem('fc_dirty','0');localStorage.removeItem('fc_dirty');}catch(e){}
+    try{localStorage.removeItem('fc_dirty');}catch(e){}
     updatePublishState();
     if(!silent)toast('Published — live for everyone with the link','ok');
     return true;
   }catch(e){toast('Publish failed: '+e.message+' (check token & repo)','warn');console.error(e);updatePublishState();return false;}
+  finally{_publishing=false;if(_publishQueued){_publishQueued=false;setTimeout(()=>publishToGitHub(true),600);}}
 }
 window.publishToGitHub=publishToGitHub;
 let _pubTimer=null;
@@ -1756,10 +1772,11 @@ $('#themeBtn').onclick=()=>{const h=document.documentElement;const dark=h.getAtt
 
 /* ---- data loader: embedded snapshot → uploaded data → bundled data.json (+ manual-data.json) ---- */
 (function(){
+  var _bust=(location.protocol.indexOf('http')===0)?('?_='+Date.now()):'';
   function afterData(data,manualOverride){
     window.__DATA=data;
     if(manualOverride){window.__REPO_MANUAL__=manualOverride;try{startApp();}catch(e){bootError('Startup error: '+e.message);console.error(e);}return;}
-    fetch('./manual-data.json',{cache:'no-store'})
+    fetch('./manual-data.json'+_bust,{cache:'no-store'})
       .then(function(r){return r.ok?r.json():null;})
       .then(function(j){window.__REPO_MANUAL__=j;})
       .catch(function(){})
@@ -1774,7 +1791,7 @@ $('#themeBtn').onclick=()=>{const h=document.documentElement;const dark=h.getAtt
   }
   var stored=null; try{ stored=localStorage.getItem('fc_userData'); }catch(e){}
   if(stored){ try{ afterData(JSON.parse(stored)); return; }catch(e){ try{localStorage.removeItem('fc_userData');}catch(_){}} }
-  fetch('./data.json',{cache:'no-store'})
+  fetch('./data.json'+_bust,{cache:'no-store'})
     .then(function(r){ if(!r.ok) throw new Error('HTTP '+r.status); return r.json(); })
     .then(function(d){ if(d&&d.sales){ afterData(d.sales,{_publishedAt:d.generated||'',keys:d.manual||{}}); } else { afterData(d); } })
     .catch(function(e){ bootError('Could not load data.json ('+e.message+').'); });
