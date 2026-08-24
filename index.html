@@ -1489,7 +1489,7 @@ function handleUpload(file){
     localStorage.setItem('fc_userData',JSON.stringify(payload));
     let man={};try{man=parseManualSheets(rd.result);}catch(e){console.error(e);}
     Object.keys(man).forEach(k=>{try{localStorage.setItem('fc_'+k,man[k]);}catch(e){}});
-    try{localStorage.setItem('fc_justUploaded','1');if(Object.keys(man).length)localStorage.setItem('fc_dirty','1');}catch(e){}
+    try{localStorage.setItem('fc_justUploaded','1');localStorage.setItem('fc_publishAfterBoot','1');localStorage.setItem('fc_dirty','1');}catch(e){}
     const extra=Object.keys(man).filter(k=>k!=='banksV2'&&k!=='assetMovesV1').length;
     toast('Loaded '+num(payload.meta.record_count)+' invoices'+(extra?(' + '+extra+' tab(s) of manual data'):'')+' — refreshing…','ok');
     setTimeout(()=>location.reload(),800);
@@ -1567,7 +1567,7 @@ function handleUploadJson(file){
     if(!sales||!sales.rows||!sales.customers)throw new Error('not a Finance Control data.json');
     localStorage.setItem('fc_userData',JSON.stringify(sales));
     if(manual){Object.keys(manual).forEach(k=>{try{localStorage.setItem('fc_'+k,manual[k]);}catch(e){}});}
-    try{localStorage.setItem('fc_justUploaded','1');if(manual)localStorage.setItem('fc_dirty','1');}catch(e){}
+    try{localStorage.setItem('fc_justUploaded','1');localStorage.setItem('fc_publishAfterBoot','1');localStorage.setItem('fc_dirty','1');}catch(e){}
     toast('data.json loaded — refreshing…','ok');setTimeout(()=>location.reload(),700);
   }catch(e){toast('Invalid data.json: '+e.message,'warn');}};
   rd.readAsText(file);
@@ -1727,8 +1727,28 @@ $('#themeBtn').onclick=()=>{const h=document.documentElement;const dark=h.getAtt
   $('#foot').innerHTML='';renderFoot();
   initLogo();initFilters();navigate('exec');var bs=document.getElementById('bootScreen');if(bs)bs.style.display='none';
   _booting=false;
-  try{if(localStorage.getItem('fc_justUploaded')){localStorage.removeItem('fc_justUploaded');localStorage.removeItem('fc_publishAfterBoot');
-    setTimeout(()=>toast('Data updated on this device. Download data.json (top) and upload it to your repo to make it live.','ok'),900);}}catch(e){}
+  try{
+    const justUploaded=localStorage.getItem('fc_justUploaded')==='1';
+    const publishAfterBoot=localStorage.getItem('fc_publishAfterBoot')==='1';
+    if(justUploaded)localStorage.removeItem('fc_justUploaded');
+    if(publishAfterBoot){
+      if(ghCfg()){
+        setTimeout(async()=>{
+          const ok=await publishToGitHub(true);
+          if(ok){
+            localStorage.removeItem('fc_publishAfterBoot');
+            toast('Data updated and published to GitHub — the live dashboard will use the new figures.','ok');
+          }else{
+            toast('Data updated locally, but GitHub publish failed. Use Publish after checking the connection.','warn');
+          }
+        },900);
+      }else{
+        setTimeout(()=>toast('Data updated locally. Connect GitHub once in Backup / Share to enable automatic live publishing.','warn'),900);
+      }
+    }else if(justUploaded){
+      setTimeout(()=>toast('Data updated on this device.','ok'),900);
+    }
+  }catch(e){console.error(e);}
 })();
 
 } /* end startApp */

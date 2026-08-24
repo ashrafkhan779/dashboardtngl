@@ -37,20 +37,29 @@ Or push the folder to **GitHub Pages** and use the live URL. Charts need an inte
 - **⭱ Upload Excel** — upload a filled `Dashboard_Master.xlsx`. Every tab updates from it:
   sales, banks, operating expenses, corporate tax, assets + depreciation/interest/returns,
   liabilities + payments/returns, cash flow, and upcoming expenses.
-- **⬇ data.json** — downloads **all dashboard data** (sales **and** every manual tab) as a single
-  `data.json`. Upload that file to your GitHub repo (replace the existing `data.json`) and the
-  **live link updates for everyone** — nothing else to send.
+- **⬇ data.json** — optional backup/export of the current dashboard data. You no longer need to
+  upload this file manually when GitHub auto-publish is connected.
 - **⬇ Sample Excel** — downloads the master template (all tabs) reflecting your current data, so
   you can fill/adjust and re-upload.
 
 ### The workflow
 
-1. Open **`Dashboard_Master.xlsx`**, fill the sheets you need (see the *How to use* sheet inside).
-2. **Upload Excel** → the dashboard updates every tab.
-3. **Download data.json** → commit/replace it in your GitHub repo → the live link shows everything.
+**First time only:** open **Backup / Share → Connect GitHub**, then enter the repository owner,
+repository, branch, paths, and a fine-grained GitHub token limited to that repo with
+**Contents: Read and write** permission. The token is stored only in that browser.
 
-Your data is also saved in the browser, so it persists across reloads on that device without any
-of the above.
+After that:
+
+1. Open **`Dashboard_Master.xlsx`** and make your changes.
+2. **Upload Excel** → every dashboard tab updates.
+3. The dashboard automatically publishes the refreshed `data.json` and `manual-data.json` to GitHub.
+4. Your GitHub Pages live dashboard reads the newly committed data.
+
+Manual edits made inside the dashboard also auto-publish when GitHub is connected. The **Publish**
+button remains available as a manual retry if a publish fails. `data.json` download is now only an
+optional backup/export.
+
+Your data is also saved in the browser, so it persists across reloads on that device.
 
 ---
 
