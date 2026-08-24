@@ -307,6 +307,7 @@ body{background:
       <button class="btn sm pri" id="upBtnTop" title="Upload a filled master Excel to update every tab">⭱ Upload Excel</button>
       <button class="btn sm" id="dlJsonTop" title="Download all dashboard data as data.json for your repo">⬇ data.json</button>
       <button class="btn sm" id="dlXlsxTop" title="Download the master Excel (all tabs) to fill in">⬇ Sample Excel</button>
+      <button class="btn sm" id="ghTopBtn" onclick="ghModal()" title="Connect this dashboard to GitHub for automatic live publishing">⇧ Connect GitHub</button>
       <button class="iconbtn" id="themeBtn" title="Toggle theme">◐</button>
     </div>
 
@@ -1520,7 +1521,7 @@ async function ghPutFile(path,contentStr,message){
   return true;
 }
 async function publishToGitHub(silent){
-  const g=ghCfg();if(!g){toast('Connect GitHub first (Backup / Share)','warn');return false;}
+  const g=ghCfg();if(!g){toast('Connect GitHub first using the top-bar Connect GitHub button','warn');return false;}
   const btn=document.getElementById('pubBtn');if(btn){btn.disabled=true;btn.textContent='Publishing…';}
   try{
     await ghPutFile(g.path||'data.json',JSON.stringify(DB),'Update data.json via dashboard');
@@ -1743,7 +1744,7 @@ $('#themeBtn').onclick=()=>{const h=document.documentElement;const dark=h.getAtt
           }
         },900);
       }else{
-        setTimeout(()=>toast('Data updated locally. Connect GitHub once in Backup / Share to enable automatic live publishing.','warn'),900);
+        setTimeout(()=>toast('Data updated locally. Connect GitHub once using the top-bar button to enable automatic live publishing.','warn'),900);
       }
     }else if(justUploaded){
       setTimeout(()=>toast('Data updated on this device.','ok'),900);

@@ -19,6 +19,15 @@ Keep `index.html` and `data.json` in the **same folder**.
 
 ---
 
+
+## GitHub auto-publish setup
+
+1. Open the live dashboard.
+2. Click **⇧ Connect GitHub** in the top bar.
+3. Enter the GitHub owner, repository, branch, data.json path, and a fine-grained token with **Contents: Read and write** permission.
+4. Click **Save & Connect**.
+5. From then on, uploading the master Excel automatically publishes the refreshed dashboard data to GitHub.
+
 ## Running it
 
 The app loads `data.json` with `fetch`, which browsers block on `file://`, so **serve the folder**:
