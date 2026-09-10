@@ -970,7 +970,7 @@ function renderDormant(){
    </div>
    <div class="kpigrid" id="dormKpis"></div>
    <div class="card" style="margin-bottom:16px"><div class="head"><h3><span class="hic">${SVG.chart}</span>Dormancy Summary</h3><span class="hint">counts are cumulative — longer windows are subsets of shorter ones</span></div><div class="body pad0"><div id="dormSummary"></div></div></div>
-   <div class="card"><div class="head"><h3 id="dormTitle"><span class="hic">${SVG.user}</span>Dormant list</h3><span class="hint" id="dormSub"></span></div><div class="body pad0"><div class="tablescroll" id="dormTbl"></div></div></div>`;
+   <div class="card"><div class="head"><h3 id="dormTitle"><span class="hic">${SVG.user}</span>Dormant list</h3><div style="display:flex;align-items:center;gap:12px"><span class="hint" id="dormSub"></span><button class="btn sm" id="dormXlsx">⬇ Excel</button></div></div><div class="body pad0"><div class="tablescroll" id="dormTbl"></div></div></div>`;
 
   const q=()=>dormQ.trim().toLowerCase();
   // summary respects the search box too
@@ -986,6 +986,21 @@ function renderDormant(){
   const si=$('#dormSearch');si.oninput=()=>{dormQ=si.value;draw();drawSummary();};
 
   const COLS=[['name','Customer',''],['last','Last Order',''],['days','Days Since','num'],['days','Months','num2'],['rev','Lifetime Sales','num'],['gp','GP%','num'],['inv','Inv','num']];
+  let curList=[];
+  function exportDorm(){
+    if(typeof XLSX==='undefined'){toast('Excel export needs an internet connection','warn');return;}
+    try{
+      const t=TH[dormSel];const wb=XLSX.utils.book_new();
+      const sumRows=TH.map(w=>{const g=custs.filter(x=>x.days>=w.d&&(!q()||x.name.toLowerCase().includes(q())));const rev=g.reduce((a,x)=>a+x.rev,0);
+        return {'No business in the last':w.k,'Min days':w.d,'Customers':g.length,'% of base':+(custs.length?g.length/custs.length*100:0).toFixed(1),'Lifetime Sales':+rev.toFixed(2),'Rev at risk %':+(totalRev?rev/totalRev*100:0).toFixed(1)};});
+      XLSX.utils.book_append_sheet(wb,XLSX.utils.json_to_sheet(sumRows),'Dormancy Summary');
+      const detRows=curList.map(x=>({'Customer':x.name,'Last Order':x.last,'Days Since':x.days,'Months':+(x.days/30).toFixed(1),'Lifetime Sales':+x.rev.toFixed(2),'Gross Profit':+x.pf.toFixed(2),'GP %':+(x.gp*100).toFixed(1),'Invoices':x.inv}));
+      XLSX.utils.book_append_sheet(wb,XLSX.utils.json_to_sheet(detRows.length?detRows:[{Customer:'(no customers in this window)'}]),('No business '+t.k).slice(0,31));
+      XLSX.writeFile(wb,'dormant-customers-'+t.k.replace(/\s+/g,'-')+(q()?'-'+dormQ.trim().replace(/\s+/g,'_'):'')+'.xlsx');
+      toast('Dormant list exported to Excel','ok');
+    }catch(e){toast('Export failed: '+e.message,'warn');console.error(e);}
+  }
+  $('#dormXlsx').onclick=exportDorm;$('#dormXlsx').title='Download this list (window + search) as Excel';
   function draw(){
     const t=TH[dormSel];
     const activeThresh=t.d;
@@ -993,6 +1008,7 @@ function renderDormant(){
     if(q())list=list.filter(x=>x.name.toLowerCase().includes(q()));
     const k=dormSort.k,dir=dormSort.dir;
     list=list.slice().sort((a,b)=>{let av=a[k],bv=b[k];if(k==='name'||k==='last'){return dir*String(av).localeCompare(String(bv));}return dir*(av-bv);});
+    curList=list;
     const active=custs.filter(x=>x.days<activeThresh&&(!q()||x.name.toLowerCase().includes(q()))).length;
     const rev=list.reduce((a,x)=>a+x.rev,0);
     $('#dormKpis').innerHTML=[
