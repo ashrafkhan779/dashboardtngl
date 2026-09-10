@@ -543,16 +543,21 @@ function renderExec(){
     const cls=d===0?'flat':(good?'up':'down');const ar=d>0?'▲':(d<0?'▼':'▪');
     return `<span class="delta ${cls}">${ar} ${pctS(pc)} <span class="sub">vs ${py}</span></span>`;}
 
-  // operating expenses + net profit (from Expenses & Corporate Tax modules), scoped to the filtered years
+  // operating expenses + net profit — VALUES follow the active Year/Quarter/Month filters
   const _exp=STORE.read('expenses',[]);const _ct=STORE.read('corpTax',{});
   const opexOf=y=>_exp.filter(e=>new Date(e.date).getFullYear()===y).reduce((s,e)=>s+(+e.total||0),0);
   const taxOf=y=>+_ct[y]||0;
-  const scopeYears=[...new Set(rows.map(r=>r[I.yr]))];
-  const opexScope=scopeYears.reduce((s,y)=>s+opexOf(y),0);
-  const taxScope=scopeYears.reduce((s,y)=>s+taxOf(y),0);
+  const inTime=e=>{const d=new Date(e.date),y=d.getFullYear(),m=d.getMonth();
+    if(F.years.length&&!F.years.includes(y))return false;
+    if(F.quarter!==''&&('Q'+(Math.floor(m/3)+1))!==F.quarter)return false;
+    if(F.month!==''&&m!==+F.month)return false;return true;};
+  const monthFrac=F.month!==''?1/12:(F.quarter!==''?0.25:1);            // pro-rate annual tax to the period
+  const taxYears=F.years.length?F.years:YEARS;
+  const opexScope=_exp.reduce((s,e)=>inTime(e)?s+(+e.total||0):s,0);      // time-filtered opex
+  const taxScope=taxYears.reduce((s,y)=>s+(+(_ct[y])||0),0)*monthFrac;
   const netScope=a.pf-opexScope-taxScope;
   const nmScope=a.rev?netScope/a.rev:0;
-  const curNet=cur.pf-opexOf(ry)-taxOf(ry),prevNet=prev.pf-opexOf(py)-taxOf(py);
+  const curNet=cur.pf-opexOf(ry)-taxOf(ry),prevNet=prev.pf-opexOf(py)-taxOf(py); // delta = YoY (as other KPIs)
   const curNM=cur.rev?curNet/cur.rev:0,prevNM=prev.rev?prevNet/prev.rev:0;
 
   p.innerHTML=`
